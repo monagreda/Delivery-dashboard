@@ -1,13 +1,17 @@
 from passlib.context import CryptContext
 from datetime import datetime, timedelta
 from jose import JWTError, jwt
+import os
+from dotenv import load_dotenv
+
+load_dotenv() #Esto carga las variables del archivo .env
 
 # Configuración secreta (En producción esto va en un archivo .env)
-SECRET_KEY = "MI_LLAVE_SECRETA_SUPER_SEGURA"
-ALGORITHM = "HS256"
+SECRET_KEY = os.getenv("SECRET_KEY")
+ALGORITHM = os.getenv("ALGORITHM")
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
-pwd_context = CryptContext(schemes=["bcrypt_sha256"], deprecated="auto")
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", truncate_error=True)
 
 # Función para encriptar contraseñas
 def get_password_hash(password):

@@ -48,13 +48,15 @@ def init_db():
 # Funciones de ACCESO
 
 def get_user(username: str):
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect("delivery.db")
     conn.row_factory = sqlite3.Row # Esto permite acceder por nombre de columna
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM users WHERE username = ?", (username,))
     row = cursor.fetchone()
     conn.close()
-    return dict(row) if row else None
+    if row:
+        return dict(row)  # Convertir a diccionario para facilitar su uso
+    return None
 
 # Ejecuta la creacion al importar el archivo
 init_db()

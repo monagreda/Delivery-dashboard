@@ -1,17 +1,21 @@
 from pydantic import BaseModel, EmailStr
 from typing import Optional
 
-# Esquema base para los usuarios
-class User(BaseModel):
+# esquema base para los usuarios
+class UserRegister(BaseModel):
     username: str
-    email: EmailStr
-    role: str  # Aquí definimos "admin" o "user"
-    disabled: Optional[bool] = None
+    password: str
+    role: str = "user"
 
 # Lo que recibimos cuando alguien se registra
-class UserCreate(User):
-    password: str
+class UserResponse(BaseModel):
+    username: str
+    role: str
 
-# Lo que devolvemos al frontend (sin la contraseña por seguridad)
-class UserInDB(User):
-    hashed_password: str
+    class Config:
+        from_attributes = True
+
+# Esquema para el login
+class UserLogin(BaseModel):
+    username: str
+    password: str

@@ -2,3 +2,11 @@
 
 /* el error es por ser una version actualizada de tailwindcss */
 @custom-variant dark (&:where(.dark, .dark *));
+
+.custom-popup .maplibregl-popup-content {
+    @apply rounded-2xl border-none shadow-2xl bg-white dark:bg-slate-900 p-0 overflow-hidden;
+}
+
+.custom-popup .maplibregl-popup-tip {
+    @apply border-t-white dark:border-t-slate-900;
+}

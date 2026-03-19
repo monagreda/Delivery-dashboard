@@ -114,7 +114,7 @@ async def register(user: UserRegister):
             conn.execute("INSERT INTO users(username, hashed_password, role) VALUES(?,?,?)",
                           (user.username, hashed, user.role)
                         )
-            conn.commit() #aseguramos que se guarde el ususario
+            conn.commit() #aseguramos que se guarde
         return {"status": "success", "message": f"Usuario {user.username} registrado"}
     except sqlite3.IntegrityError:
         raise HTTPException(status_code=400, detail='El usuario ya existe')
@@ -135,7 +135,7 @@ async def create_personal_order(lng: float, lat: float, user = Depends(get_curre
     return{"status": "success", "order_id": order_id}
 
 # Read
-@app.get("/my-orders")
+@app.get("/orders")
 async def get_my_orders(current_user = Depends(get_current_user)):
     with get_db_conn() as conn:
         rows = conn.execute(
@@ -153,23 +153,39 @@ async def get_my_orders(current_user = Depends(get_current_user)):
     return{"type": "FeatureCollection","features": features}
 
 # Edit 
-@app.put("/orders/{order_id}")
-async def update_order(order_id: str, lng: float, lat: float, current_user= Depends(get_current_user)):
-    with get_db_conn() as conn:
-        # Verificar propiedad y actualizar en una sola transaccion
-        res = conn.execute(
-            "UPDATE orders SET lng = ?, lat = ? WHERE order_id = ? AND user_id = ?",
-            (lng, lat, order_id, current_user["id"])
-        )
-        if res.rowcount == 0:
-            raise HTTPException(status_code=404, detail="Pedido no encontrado o sin permisos")
-    return{"status": "success", "message": f"Pedido{order_id} actualizado"}
+@app.put("/orders/{order_id}/location")
+async def update_order(order_id: str, lng: float, lat: float, current_user = Depends(get_current_user)):
+    # 1. Obtenemos el ID y el ROL del usuario correctamente
+    user_id = current_user["id"] if isinstance(current_user, dict) else current_user.id
+    user_role = current_user["role"] if isinstance(current_user, dict) else current_user.role
 
+    with get_db_conn() as conn:
+        cursor = conn.cursor()
+        
+        # 2. Lógica de permisos: El admin mueve todo, el usuario solo lo suyo
+        if user_role == "admin":
+            cursor.execute(
+                "UPDATE orders SET lng = ?, lat = ? WHERE order_id = ?", 
+                (lng, lat, order_id)
+            )
+        else:
+            cursor.execute(
+                "UPDATE orders SET lng = ?, lat = ? WHERE order_id = ? AND user_id = ?",
+                (lng, lat, order_id, user_id)
+            )
+        
+        conn.commit() # ¡Importante para guardar en el archivo .db!
+
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Pedido no encontrado o sin permisos")
+            
+    return {"status": "success", "message": f"Pedido {order_id} actualizado"}
 
 # Delete
 @app.delete("/orders/{order_id}")
 async def delete_order(order_id: str, current_user = Depends(get_current_user)):
     with get_db_conn() as conn:
+        
         res = conn.execute(
             "DELETE FROM orders WHERE order_id = ? AND user_id = ?", 
             (order_id, current_user["id"])
@@ -215,12 +231,20 @@ async def optimize_zones(n_clusters: int=4, admin_user=Depends(get_current_admin
 
         # 4. Actualizar las zonas en la DB y preparar GeoJSON
         features = []
+        stats= {i: 0 for i in range(n_clusters)} # inicializamos el contador en 0
+
+
         for i in range(len(rows)):
+            zone_id = int(clusters[i])
+
             # Actualizamos la zona en la base de datos
             cursor.execute(
                 "UPDATE orders SET zone = ? WHERE order_id = ?", 
-                (int(clusters[i]), order_ids[i])
+                (zone_id, order_ids[i])
             )
+            
+            #Sumamos al contador en la zona correspondiente
+            stats[zone_id] += 1
             
             # Construimos el objeto para el mapa de React
             features.append({
@@ -230,13 +254,17 @@ async def optimize_zones(n_clusters: int=4, admin_user=Depends(get_current_admin
                     "coordinates": [float(rows[i][0]), float(rows[i][1])]
                 },
                 "properties": {
-                    "zone": int(clusters[i]), 
+                    "zone": zone_id, 
                     "order_id": order_ids[i]
                 }
             })
+        conn.commit()
     return {
-        "type": "FeatureCollection",
-        "features": features,
+        "geojson": {
+            "type": "FeatureCollection",
+            "features": features,
+        },
+        "stats": stats,
         "metadata": {"zones_count": n_clusters}
         } 
 

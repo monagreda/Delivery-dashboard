@@ -17,7 +17,11 @@ const Login = ({ onLoginSuccess, onCancel }) => {
             params.append('username', username);
             params.append('password', password);
 
-            const res = await axios.post('http://127.0.0.1:8000/token', params);
+            const res = await axios.post('http://127.0.0.1:8000/token', params, {
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                }
+            });
 
             // 1. Extraemos token y rol de la respuesta del backend
             const { access_token, role: userRole } = res.data;

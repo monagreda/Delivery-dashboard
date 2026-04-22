@@ -1,0 +1,137 @@
+@import "tailwindcss";
+
+@utility scrollbar-hide {
+    @apply overflow-auto;
+    /* Asegura que siga siendo scrolleable */
+    scrollbar-width: none;
+    /* Para Firefox */
+    -ms-overflow-style: none;
+    /* Para IE/Edge */
+
+    &::-webkit-scrollbar {
+        display: none;
+        /* Para Chrome, Safari y Brave */
+    }
+}
+
+/* Animate-shimmer */
+@utility animate-shimmer {
+    background: linear-gradient(90deg,
+            transparent 0%,
+            rgba(255, 255, 255, 0.05) 50%,
+            transparent 100%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+    0% {
+        background-position: -200% 0;
+    }
+
+    100% {
+        background-position: 200% 0;
+    }
+}
+
+/* Color base para los "huesos" */
+@utility bg-skeleton {
+    @apply bg-slate-200 dark:bg-slate-800/50;
+}
+
+/* el error es por ser una version actualizada de tailwindcss */
+@custom-variant dark (&:where(.dark, .dark *));
+
+.custom-popup .maplibregl-popup-content {
+    background: #0f172a !important;
+    /* Slate 900 de Tailwind */
+    color: #f1f5f9 !important;
+    /* Slate 100 */
+    border-radius: 12px !important;
+    padding: 0 !important;
+    /* Para controlar el padding desde React */
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.4) !important;
+    border: 1px solid #1e293b;
+    /* Slate 800 */
+}
+
+.custom-popup .maplibregl-popup-tip {
+    border-top-color: #0f172a !important;
+    border-bottom-color: #0f172a !important;
+}
+
+/* 1. Quitar el fondo blanco y el padding por defecto */
+.maplibregl-popup-content {
+    background-color: transparent !important;
+    /* Hacemos que el fondo de MapLibre sea invisible */
+    border: none !important;
+    padding: 0 !important;
+    /* Quitamos el espacio blanco */
+    box-shadow: none !important;
+    /* Quitamos la sombra por defecto */
+}
+
+/* 2. Quitar el botón "X" por defecto (opcional, ya que tus componentes suelen ser cerrables al hacer clic fuera o puedes poner tu propia X) */
+.maplibregl-popup-close-button {
+    display: none !important;
+}
+
+/* 3. Cambiar el color de la "flechita" (el pico del popup) */
+.maplibregl-popup-tip {
+    border-top-color: #0f172a !important;
+    /* Debe ser el mismo azul de tu popup (slate-900) */
+    border-bottom-color: #0f172a !important;
+}
+
+/* Ajustar controles de MapLibre en móviles */
+@media (max-width: 768px) {
+
+    .maplibregl-ctrl-bottom-left,
+    .maplibregl-ctrl-bottom-right {
+        bottom: 62vh !important;
+        /* Los sube por encima del drawer inferior */
+        transition: bottom 0.3s ease;
+    }
+
+    /* Hacer que los popups sean más amigables al touch */
+    .maplibregl-popup-content {
+        padding: 15px;
+        border-radius: 20px;
+    }
+}
+
+/* El punto azul del Driver */
+.driver-marker {
+    width: 20px;
+    height: 20px;
+    background-color: #3b82f6;
+    /* Azul Google */
+    border: 3px solid white;
+    border-radius: 50%;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
+    cursor: pointer;
+}
+
+/* El efecto pulsante (Opcional, pero se ve genial) */
+.driver-marker::after {
+    content: '';
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    background-color: #3b82f6;
+    border-radius: 50%;
+    z-index: -1;
+    animation: pulse-dot 2s infinite;
+}
+
+@keyframes pulse-dot {
+    0% {
+        transform: scale(1);
+        opacity: 0.8;
+    }
+
+    100% {
+        transform: scale(3);
+        opacity: 0;
+    }
+}

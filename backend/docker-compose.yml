@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  # El Motor de Mapas (OSRM)
+  osrm-engine:
+    image: osrm/osrm-backend
+    container_name: osrm-caracas
+    volumes:
+      - ./map-data:/data
+    ports:
+      - "5000:5000"
+    command: osrm-routed --algorithm mld /data/venezuela-260404.osm.pbf
+    restart: always
+
+  # Tu API de FastAPI
+  api-backend:
+    build: .
+    container_name: api-logistica
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      - ./delivery.db:/app/delivery.db
+    depends_on:
+      - osrm-engine
+    restart: always

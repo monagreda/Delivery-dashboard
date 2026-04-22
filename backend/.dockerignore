@@ -1,0 +1,9 @@
+map-data/
+*.pbf
+.venv/
+__pycache__/
+*.pyc
+.env
+.git/
+.vscode/
+node_modules/

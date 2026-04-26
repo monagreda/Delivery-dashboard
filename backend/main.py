@@ -1,5 +1,7 @@
 import numpy as np
 import sqlite3
+import psycopg2
+from psycopg2.extras import RealDictCursor # Para que r[0] también funcione como r['lng']
 import os
 from dotenv import load_dotenv
 import uuid # Para generar IDs unicos de pedidos
@@ -21,6 +23,10 @@ pedidos_db = []  # Simulación de base de datos de pedidos, se usara en optimize
 
 app = FastAPI(title="LogiPredict AI API")
 
+load_dotenv()
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+
 # Middleware
 app.add_middleware(
     CORSMiddleware,
@@ -30,26 +36,32 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-DB_NAME = "delivery.db"
 
 # Esto permite que FastAPI entienda de dónde sacar el Token en las peticiones
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
-# Modularizacion de la DB
+# # Modularizacion de la DB
+# def get_db_conn():
+#     conn = sqlite3.connect(DB_NAME)
+#     conn.row_factory = sqlite3.Row #Permite acceder por nombre de columna
+#     return conn
+
 def get_db_conn():
-    conn = sqlite3.connect(DB_NAME)
-    conn.row_factory = sqlite3.Row #Permite acceder por nombre de columna
-    return conn
+    # Conexión a Supabase
+    return psycopg2.connect(DATABASE_URL)
 
 # Inicialización de la base de datos al iniciar la app
 def init_db():
-    with get_db_conn() as conn:
+    conn = get_db_conn()
+    if not conn: return
+
+    with conn: 
         cursor = conn.cursor()
 
         #Tabla de Usuarios
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id SERIAL PRIMARY KEY,
                 username TEXT UNIQUE NOT NULL,
                 hashed_password TEXT NOT NULL,
                 role TEXT NOT NULL -- 'user' o 'driver'
@@ -60,18 +72,17 @@ def init_db():
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS orders (
                 order_id TEXT PRIMARY KEY,
-                lng REAL NOT NULL,
-                lat REAL NOT NULL,
+                lng DOUBLE PRECISION NOT NULL,
+                lat DOUBLE PRECISION NOT NULL,
                 zone INTEGER DEFAULT 0,
-                user_id INTEGER, --Relacion con el ususario que lo creo
-                driver_id INTEGER, -- 👈 Nuevo: ID del conductor asignado
+                user_id INTEGER REFERENCES users(id), --Relacion con el ususario que lo creo
+                driver_id INTEGER REFERENCES users(id), -- 👈 Nuevo: ID del conductor asignado
                 status TEXT DEFAULT 'pending', -- 👈 Nuevo: pending, assigned, delivered
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                delivered_at DATETIME,
-                FOREIGN KEY(user_id) REFERENCES users(id),
-                FOREIGN KEY(driver_id) REFERENCES users(id)
+                delivered_at TIMESTAMP
             )
     ''')
+    conn.close()
 
 init_db()
 
@@ -121,7 +132,7 @@ async def register(user: UserRegister):
     hashed = get_password_hash(user.password)
     try:
         with get_db_conn() as conn:
-            conn.execute("INSERT INTO users(username, hashed_password, role) VALUES(?,?,?)",
+            conn.execute("INSERT INTO users(username, hashed_password, role) VALUES(%s, %s, %s)",
                           (user.username, hashed, user.role)
                         )
             conn.commit() #aseguramos que se guarde
@@ -167,7 +178,7 @@ async def create_order(lng: float, lat: float, current_user = Depends(get_curren
         order_id = f"CCS-{int(time.time())}"
         
         conn.execute(
-            "INSERT INTO orders (order_id, lng, lat, user_id, status) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO orders (order_id, lng, lat, user_id, status) VALUES(%s, %s, %s, %s, %s)",
             (order_id, lng, lat, current_user["id"], "pending")
         )
         conn.commit()
@@ -383,6 +394,7 @@ async def optimize_zones(n_clusters: int = 4, admin_user=Depends(get_current_adm
                 
         # Llave de mapa
         MAPTILER_KEY = os.getenv("MAPTILER_KEY")
+        GH_KEY = os.getenv("GH_KEY")
 
         #Intentar leer los pedidos de la DB
         cursor.execute("SELECT lng, lat, order_id, driver_id, status FROM orders WHERE status != 'delivered'")
@@ -391,13 +403,13 @@ async def optimize_zones(n_clusters: int = 4, admin_user=Depends(get_current_adm
         # 2. Si no hay pedidos, creamos unos iniciales por unica vez
         if not rows:
             np.random.seed(42)
-            lat = np.random.uniform(low=10.47, high=10.51, size=50)
-            lng = np.random.uniform(low=-66.93, high=-66.85, size=50)
+            lat = np.random.uniform(low=10.47, high=10.51, size=20)
+            lng = np.random.uniform(low=-66.93, high=-66.85, size=20)
 
-            for i in range(50):
+            for i in range(20):
                 o_id = f"CCS-{i + 100}"
                 cursor.execute(
-                    "INSERT INTO orders(order_id, lng, lat) VALUES(?,?,?)",
+                    "INSERT INTO orders(order_id, lng, lat) VALUES(%s, %s, %s)",
                     (o_id, lng[i], lat[i])
                 )
             conn.commit()
@@ -484,43 +496,45 @@ async def optimize_zones(n_clusters: int = 4, admin_user=Depends(get_current_adm
             # Consulta a OSRM para lineas de la calle
             try:
                 # Formateamos las coordenadas: "lng,lat;lng,lat;..."
-                coords_str = ";".join([f"{p[0]},{p[1]}" for p in ordered_route])
+                # coords_str = ";".join([f"{round(p[0], 5)},{round(p[1], 5)}" for p in ordered_route])
+                points_params = [f"point={round(p[1], 5)},{round(p[0], 5)}" for p in ordered_route]
+                points_query = "&".join(points_params)
                 
                 # Llamada al servidor demo de OSRM
                 # osrm_url = f"http://osrm-engine:5000/route/v1/driving/{coords_str}?overview=full&geometries=geojson"
 
                 # Llamada al servidor de maptiler
-                maptiler_url = f"https://api.maptiler.com/routing/v1/driving/{coords_str}?key={MAPTILER_KEY}&format=geojson"
+                # maptiler_url = f"https://api.maptiler.com/routing/v1/bicycle/{coords_str}?key={MAPTILER_KEY}&format=geojson"
+
+                gh_url = (
+                    f"https://graphhopper.com/api/1/route?{points_query}"
+                    f"&profile=car&locale=es&points_encoded=false"
+                    f"&key={GH_KEY}&type=json"
+                )
                 
                 # REQUEST.GET CON OSRM_URL O MAPTILER_URL
-                response = requests.get(maptiler_url, timeout=10)
+                response = requests.get(gh_url, timeout=15)
                 if response.status_code == 200:
                     route_data = response.json()
-
-                    # Si usamos maptiler
-                    feature = route_data['features'][0]
-
-                    # Extraemos la geometría real (las calles)
-                    # real_geometry = route_data['routes'][0]['geometry']
-
-                    real_geometry = feature['geometry']
-
-                    # --- 2. EXTRAER Y ACUMULAR DISTANCIA ---
-                    # OSRM devuelve 'distance' en metros. Convertimos a km.
-                    # meters = route_data['routes'][0]['distance']
-                    meters = feature['properties'].get('distance', 0)
-                    distances_per_zone[z] = round(meters / 1000, 2)
-                    # ---------------------------------------
-                    
-                    routes_features.append({
-                        "type": "Feature",
-                        "properties": {"zone": z},
-                        "geometry": real_geometry # <--- Aquí ya no es una línea recta
-                    })
+                    if 'paths' in route_data and len(route_data['paths']) > 0:
+                        path = route_data['paths'][0]
+                        
+                        # 2. Extraemos la geometría (GraphHopper ya la da formateada)
+                        real_geometry = path['points'] 
+                        meters = path.get('distance', 0)
+                        
+                        distances_per_zone[z] = round(meters / 1000, 2)
+                        
+                        routes_features.append({
+                            "type": "Feature",
+                            "properties": {"zone": z},
+                            "geometry": real_geometry 
+                        })
                 else:
-                    raise Exception(f"Error en Maptiler: {response.status_code}")
+                        raise Exception(f"Error en Graphhopper: {response.status_code}")
                 
             except Exception as e:
+                print(f"Error Maptiler Zona {z}: {response.status_code} - {response.text}")
                 print(f"Fallback a línea recta para zona {z}: {e}")
 
                 # Si OSRM o maptiler falla, volvemos a la línea recta para que la app no explote
@@ -552,5 +566,3 @@ async def optimize_zones(n_clusters: int = 4, admin_user=Depends(get_current_adm
 @app.get("/")
 def home():
     return {"message": "API de LogiPredict con Roles Activa"}
-
-   

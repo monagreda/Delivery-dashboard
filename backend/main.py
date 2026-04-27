@@ -81,13 +81,20 @@ def init_db():
                 user_id INTEGER REFERENCES users(id), --Relacion con el ususario que lo creo
                 driver_id INTEGER REFERENCES users(id), -- 👈 Nuevo: ID del conductor asignado
                 status TEXT DEFAULT 'pending', -- 👈 Nuevo: pending, assigned, delivered
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                delivered_at TIMESTAMP
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                delivered_at TIMESTAMPTZ
             )
     ''')
     conn.close()
 
-init_db()
+# En main.py
+@app.on_event("startup")
+def startup_event():
+    try:
+        init_db()
+        print("✅ Tablas verificadas/creadas en Supabase")
+    except Exception as e:
+        print(f"❌ Error al iniciar DB: {e}")
 
 
 # Dpendencias de Seguridad

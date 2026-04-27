@@ -1,65 +1,28 @@
-from auth import get_password_hash
-import sqlite3
+import psycopg2
+from psycopg2.extras import RealDictCursor
+import os
+from dotenv import load_dotenv
 
-DB_PATH = "delivery.db"
+load_dotenv()
 
-def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
-    # 1. Crear tabla de usuarios (Sincronizada sin email ni disabled)
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            id SERIAL PRIMARY KEY,
-            username TEXT UNIQUE NOT NULL,
-            hashed_password TEXT NOT NULL,
-            role TEXT NOT NULL
-        )
-    ''')
+DATABASE_URL = os.getenv("DATABASE_URL")
 
-    # 2. Crear tabla de pedidos (Incluyendo user_id para vinculación)
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS orders (
-            order_id TEXT PRIMARY KEY,
-            lng DOUBLE PRECISION NOT NULL,
-            lat DOUBLE PRECISION NOT NULL,
-            zone INTEGER DEFAULT 0,
-            user_id INTEGER,
-            driver_id INTEGER,
-            status TEXT DEFAULT 'pending',
-            created_at TIMESTAMPTZ DEFAULT NOW(),
-            delivered_at TIMESTAMPTZ,
-            FOREIGN KEY(user_id) REFERENCES users(id),
-            FOREIGN KEY(driver_id) REFERENCES users(id)
-        )
-    ''')
-    
-    # 3. Insertar usuarios de ejemplo (Sin columnas sobrantes)
-    cursor.execute('''
-        INSERT OR IGNORE INTO users (username, hashed_password, role) 
-        VALUES(?, ?, ?)
-    ''', ("admin_luis", get_password_hash("admin123"), "admin"))
-    
-    cursor.execute('''
-        INSERT OR IGNORE INTO users (username, hashed_password, role) 
-        VALUES (?, ?, ?)
-    ''', ("user_pedro", get_password_hash("user123"), "user"))
+# Reparación de la URL para SQLAlchemy/Psycopg2 si viene de Heroku/Render
+if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
-    conn.commit()
-    conn.close()
-
-# Funciones de ACCESO
-def get_user(username: str):
-    conn = sqlite3.connect(DB_PATH) # Usamos la constante DB_PATH
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM users WHERE username = ?", (username,))
-    row = cursor.fetchone()
-    conn.close()
-    if row:
-        return dict(row)
-    return None
-
-# Ejecuta la creación al importar el archivo
-if __name__ == "__main__":
-    init_db()
+def get_user(username):
+    # Conectamos a Postgres (Supabase)
+    conn = psycopg2.connect(DATABASE_URL)
+    try:
+        # Usamos RealDictCursor para que el resultado sea un diccionario {'username': 'admin', ...}
+        # y no una simple lista o tupla.
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT * FROM users WHERE username = %s", (username,))
+            user = cur.fetchone()
+            return user
+    except Exception as e:
+        print(f"Error al obtener usuario: {e}")
+        return None
+    finally:
+        conn.close() # Importante cerrar siempre la conexión

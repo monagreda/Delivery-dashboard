@@ -30,7 +30,10 @@ if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
 # Middleware - Recuerda agregar tu URL de Vercel aquí si tienes problemas de CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # Permitir todos temporalmente para pruebas en la nube
+    allow_origins=[
+        "https://delivery-dashboard-eosin.vercel.app", # Tu URL de Vercel
+        "http://localhost:5173",
+        ], # Permitir todos temporalmente para pruebas en la nube
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

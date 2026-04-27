@@ -17,7 +17,7 @@ const Login = ({ onLoginSuccess, onCancel }) => {
             params.append('username', username);
             params.append('password', password);
 
-            const res = await axios.post('http://127.0.0.1:8000/token', params, {
+            const res = await axios.post(`${import.meta.env.VITE_API_URL}/token`, params, {
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded'
                 }

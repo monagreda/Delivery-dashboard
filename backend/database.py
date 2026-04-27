@@ -10,7 +10,7 @@ def init_db():
     # 1. Crear tabla de usuarios (Sincronizada sin email ni disabled)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             username TEXT UNIQUE NOT NULL,
             hashed_password TEXT NOT NULL,
             role TEXT NOT NULL
@@ -21,14 +21,14 @@ def init_db():
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS orders (
             order_id TEXT PRIMARY KEY,
-            lng REAL NOT NULL,
-            lat REAL NOT NULL,
+            lng DOUBLE PRECISION NOT NULL,
+            lat DOUBLE PRECISION NOT NULL,
             zone INTEGER DEFAULT 0,
             user_id INTEGER,
             driver_id INTEGER,
             status TEXT DEFAULT 'pending',
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            delivered_at DATETIME,
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            delivered_at TIMESTAMPTZ,
             FOREIGN KEY(user_id) REFERENCES users(id),
             FOREIGN KEY(driver_id) REFERENCES users(id)
         )

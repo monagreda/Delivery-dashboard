@@ -20,9 +20,6 @@ COPY . .
 # 6. Puerto de salida
 EXPOSE 8000
 
-# 7. forzamos la creación de las tablas al construir la imagen
-RUN python database.py
-
 # 7. ÚNICO COMANDO DE ARRANQUE
 # Usamos uvicorn para levantar la API de LogiPredict
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

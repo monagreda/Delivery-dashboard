@@ -38,10 +38,10 @@ export const MapProvider = ({ children }) => {
 
         try {
             const url = role === 'admin'
-                ? `http://localhost:8000/admin/optimize-zones?n_clusters=${numZones}`
+                ? `${import.meta.env.VITE_API_URL}/admin/optimize-zones?n_clusters=${numZones}`
                 : role === 'driver'
-                    ? `http://localhost:8000/driver/my-orders`
-                    : `http://localhost:8000/orders`;
+                    ? `${import.meta.env.VITE_API_URL}/driver/my-orders`
+                    : `${import.meta.env.VITE_API_URL}/orders`;
 
             const res = await axios.get(url, {
                 headers: { Authorization: `Bearer ${token}` }
@@ -105,7 +105,7 @@ export const MapProvider = ({ children }) => {
             console.log("Estado Auth", { isLoggedIn, role, token: !!token })
             if (isLoggedIn && role === 'admin' && token) {
                 try {
-                    const res = await axios.get("http://localhost:8000/admin/drivers", {
+                    const res = await axios.get(`${import.meta.env.VITE_API_URL}/admin/drivers`, {
                         headers: { Authorization: `Bearer ${token}` }
                     });
                     setDrivers(res.data);
@@ -124,7 +124,7 @@ export const MapProvider = ({ children }) => {
             setStatus('Creando pedido...');
 
             // El backend crea el pedido
-            const res = await axios.post(`http://localhost:8000/orders?lng=${lng}&lat=${lat}`, {}, {
+            const res = await axios.post(`${import.meta.env.VITE_API_URL}/orders?lng=${lng}&lat=${lat}`, {}, {
                 headers: { Authorization: `Bearer ${token}` }
             });
 
@@ -150,7 +150,7 @@ export const MapProvider = ({ children }) => {
     const assignOrderToDriver = useCallback(async (orderId, driverId) => {
         try {
             setStatus('Asignando pedido...');
-            await axios.patch(`http://localhost:8000/orders/${orderId}/assign`,
+            await axios.patch(`${import.meta.env.VITE_API_URL}/orders/${orderId}/assign`,
                 { driver_id: parseInt(driverId) },
                 { headers: { Authorization: `Bearer ${token}` } },
             );
@@ -260,7 +260,7 @@ export const MapProvider = ({ children }) => {
     const markAsDelivered = useCallback(async (orderId) => {
         try {
             setStatus('Actualizando entrega...');
-            await axios.patch(`http://localhost:8000/orders/${orderId}/deliver`, {}, {
+            await axios.patch(`${import.meta.env.VITE_API_URL}/orders/${orderId}/deliver`, {}, {
                 headers: { Authorization: `Bearer ${token}` }
             });
 

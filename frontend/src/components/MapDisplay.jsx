@@ -105,7 +105,7 @@ const MapDisplay = ({ isDark }) => {
     const deleteOrder = async (orderId) => {
         if (!window.confirm(`¿Seguro que quieres eliminar el pedido ${orderId}?`)) return;
         try {
-            await axios.delete(`http://127.0.0.1:8000/orders/${orderId}`, {
+            await axios.delete(`https://delivery-dashboard-4szq.onrender.com/orders/${orderId}`, {
                 headers: { Authorization: `Bearer ${token}` }
             });
             fetchZones(zones);
@@ -139,7 +139,7 @@ const MapDisplay = ({ isDark }) => {
             map.current.getCanvas().style.cursor = '';
             try {
                 setStatus('📍 Reubicando...');
-                await axios.put(`http://127.0.0.1:8000/orders/${orderId}/location?lng=${lng}&lat=${lat}`, {}, {
+                await axios.put(`https://delivery-dashboard-4szq.onrender.com/orders/${orderId}/location?lng=${lng}&lat=${lat}`, {}, {
                     headers: { Authorization: `Bearer ${token}` }
                 });
                 fetchZones(zones);

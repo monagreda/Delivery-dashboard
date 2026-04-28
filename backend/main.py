@@ -271,32 +271,38 @@ async def get_admin_history(admin_user = Depends(get_current_admin), conn=Depend
 
 @app.get("/admin/optimize-zones")
 async def optimize_zones(n_clusters: int = 4, admin_user=Depends(get_current_admin), conn=Depends(get_db)):
-    MAPTILER_KEY = os.getenv("MAPTILER_KEY")
     GH_KEY = os.getenv("GH_KEY")
-
-    with conn:
+    
+    try:
         with conn.cursor() as cursor:
+            # 1. Obtener pedidos pendientes
             cursor.execute("SELECT lng, lat, order_id, driver_id, status FROM orders WHERE status != 'delivered'")
             rows = cursor.fetchall()
 
             if not rows:
                 return {"message": "No hay pedidos para optimizar"}
 
+            # Evitar que KMeans explote si hay pocos pedidos
+            actual_clusters = min(n_clusters, len(rows))
+            
             coords = np.array([[float(r['lng']), float(r['lat'])] for r in rows])
             order_ids = [r['order_id'] for r in rows]
 
-            model = KMeans(n_clusters=n_clusters, init="k-means++", random_state=42, n_init=10)
+            # 2. IA: K-Means
+            model = KMeans(n_clusters=actual_clusters, init="k-means++", random_state=42, n_init=10)
             clusters = model.fit_predict(coords)
 
             features = []
             routes_features = []
-            stats = {i: 0 for i in range(n_clusters)}
-            distances_per_zone = {i: 0.0 for i in range(n_clusters)}
+            stats = {i: 0 for i in range(actual_clusters)}
+            distances_per_zone = {i: 0.0 for i in range(actual_clusters)}
 
+            # 3. Actualizar zonas en la DB y preparar GeoJSON
             for i in range(len(rows)):
                 zone_id = int(clusters[i])
                 o_id = order_ids[i]
                 
+                # Ejecutamos el update
                 cursor.execute("UPDATE orders SET zone = %s WHERE order_id = %s", (zone_id, o_id))
                 stats[zone_id] += 1
                 
@@ -311,9 +317,9 @@ async def optimize_zones(n_clusters: int = 4, admin_user=Depends(get_current_adm
                     }
                 })
 
-            # Generación de rutas (TSP simplificado)
-            for z in range(n_clusters):
-                zone_indices = [i for i, val in enumerate(clusters) if val == z]
+            # 4. Generación de rutas (TSP simplificado)
+            for z in range(actual_clusters):
+                zone_indices = [idx for idx, val in enumerate(clusters) if val == z]
                 if len(zone_indices) < 2: continue
 
                 zone_coords = coords[zone_indices].tolist()
@@ -323,11 +329,12 @@ async def optimize_zones(n_clusters: int = 4, admin_user=Depends(get_current_adm
                     closest_idx = np.argmin(distances)
                     ordered_route.append(zone_coords.pop(closest_idx))
 
+                # Petición a GraphHopper para rutas reales
                 try:
                     points_query = "&".join([f"point={round(p[1], 5)},{round(p[0], 5)}" for p in ordered_route])
                     gh_url = f"https://graphhopper.com/api/1/route?{points_query}&profile=car&key={GH_KEY}&type=json&points_encoded=false"
                     
-                    resp = requests.get(gh_url, timeout=10)
+                    resp = requests.get(gh_url, timeout=5) # Timeout más corto para no bloquear Render
                     if resp.status_code == 200:
                         path = resp.json()['paths'][0]
                         routes_features.append({
@@ -336,19 +343,29 @@ async def optimize_zones(n_clusters: int = 4, admin_user=Depends(get_current_adm
                             "geometry": path['points']
                         })
                         distances_per_zone[z] = round(path.get('distance', 0) / 1000, 2)
+                    else:
+                        raise Exception("GH falló")
                 except:
+                    # Fallback a línea recta si falla la API de rutas
                     routes_features.append({
                         "type": "Feature",
                         "properties": {"zone": z},
                         "geometry": {"type": "LineString", "coordinates": ordered_route}
                     })
 
-    return {
-        "geojson": {"type": "FeatureCollection", "features": features},
-        "routes_geojson": {"type": "FeatureCollection", "features": routes_features},
-        "stats": stats,
-        "distances": distances_per_zone
-    }
+            # IMPORTANTE: Guardar cambios en Supabase
+            conn.commit()
+
+        return {
+            "geojson": {"type": "FeatureCollection", "features": features},
+            "routes_geojson": {"type": "FeatureCollection", "features": routes_features},
+            "stats": stats,
+            "distances": distances_per_zone
+        }
+    except Exception as e:
+        conn.rollback() # Si algo falla, deshacemos cambios para no dejar la DB bloqueada
+        print(f"🔥 Error crítico en optimize_zones: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
 
 @app.get("/")
 def home():

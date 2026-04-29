@@ -13,7 +13,7 @@ const HistoryContainer = () => {
     useEffect(() => {
         const fetchHistory = async () => {
             try {
-                const endpoint = `http://localhost:8000/history/${role}`;
+                const endpoint = `https://delivery-dashboard-4szq.onrender.com/${role === 'admin' ? 'admin' : 'driver'}/history`;
                 const res = await axios.get(endpoint, {
                     headers: { Authorization: `Bearer ${token}` }
                 });

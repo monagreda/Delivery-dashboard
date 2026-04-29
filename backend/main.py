@@ -248,27 +248,70 @@ async def deliver_order(order_id: str, current_user = Depends(get_current_user),
 
 # --- HISTORIAL ---
 
+def format_history_results(rows):
+    """Función auxiliar para convertir fechas a texto y evitar errores de JSON"""
+    if not rows:
+        return []
+    for row in rows:
+        # Convertimos objetos datetime a string ISO para que React los lea fácil
+        if 'created_at' in row and row['created_at']:
+            row['created_at'] = row['created_at'].isoformat()
+        if 'delivered_at' in row and row['delivered_at']:
+            row['delivered_at'] = row['delivered_at'].isoformat()
+    return rows
+
 @app.get("/history/user")
 async def get_user_history(current_user = Depends(get_current_user), conn=Depends(get_db)):
-    with conn.cursor() as cursor:
-        cursor.execute(
-            "SELECT o.*, d.username as driver FROM orders o LEFT JOIN users d ON o.driver_id = d.id WHERE o.user_id = %s AND o.status = 'delivered' ORDER BY o.delivered_at DESC", 
-            (current_user["id"],)
-        )
-        return cursor.fetchall()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """SELECT o.order_id, o.status, o.created_at, o.delivered_at, o.lng, o.lat, o.zone,
+                          d.username as driver 
+                   FROM orders o 
+                   LEFT JOIN users d ON o.driver_id = d.id 
+                   WHERE o.user_id = %s AND o.status = 'delivered' 
+                   ORDER BY o.delivered_at DESC""", 
+                (current_user["id"],)
+            )
+            return format_history_results(cursor.fetchall())
+    except Exception as e:
+        print(f"Error User History: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/history/driver")
 async def get_driver_history(current_user = Depends(get_current_user), conn=Depends(get_db)):
-    with conn.cursor() as cursor:
-        cursor.execute("SELECT * FROM orders WHERE driver_id = %s AND status = 'delivered' ORDER BY delivered_at DESC", (current_user["id"],))
-        return cursor.fetchall()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """SELECT order_id, status, created_at, delivered_at, lng, lat, zone 
+                   FROM orders 
+                   WHERE driver_id = %s AND status = 'delivered' 
+                   ORDER BY delivered_at DESC""", 
+                (current_user["id"],)
+            )
+            return format_history_results(cursor.fetchall())
+    except Exception as e:
+        print(f"Error Driver History: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/history/admin")
 async def get_admin_history(admin_user = Depends(get_current_admin), conn=Depends(get_db)):
-    with conn.cursor() as cursor:
-        cursor.execute("SELECT o.*, u.username as client, d.username as driver FROM orders o JOIN users u ON o.user_id = u.id LEFT JOIN users d ON o.driver_id = d.id WHERE o.status = 'delivered' ORDER BY o.delivered_at DESC LIMIT 100")
-        return cursor.fetchall()
-
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """SELECT o.order_id, o.status, o.created_at, o.delivered_at, o.lng, o.lat, o.zone,
+                          u.username as client, d.username as driver 
+                   FROM orders o 
+                   JOIN users u ON o.user_id = u.id 
+                   LEFT JOIN users d ON o.driver_id = d.id 
+                   WHERE o.status = 'delivered' 
+                   ORDER BY o.delivered_at DESC LIMIT 100"""
+            )
+            return format_history_results(cursor.fetchall())
+    except Exception as e:
+        print(f"Error Admin History: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    
 @app.get("/admin/optimize-zones")
 async def optimize_zones(n_clusters: int = 4, admin_user=Depends(get_current_admin), conn=Depends(get_db)):
     GH_KEY = os.getenv("GH_KEY")

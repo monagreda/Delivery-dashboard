@@ -28,7 +28,15 @@ const HistoryTable = ({ data, role }) => {
                                     </td>
                                 )}
                                 <td className="py-3 px-6 text-xs">
-                                    {new Date(item.delivered_at + "Z").toLocaleString('es-VE', { hour: '2-digit', minute: '2-digit', hour12: true })}
+                                    {item.delivered_at
+                                        ? new Date(item.delivered_at + "Z").toLocaleString('es-VE', {
+                                            day: '2-digit',
+                                            month: '2-digit',
+                                            year: 'numeric',
+                                            hour: '2-digit',
+                                            minute: '2-digit'
+                                        })
+                                        : 'Sin fecha'}
                                 </td>
                                 {(role === 'admin' || role === 'user') && <td className="py-3 px-6 text-slate-400">👤 {item.driver || "—"}</td>}
                                 <td className="py-3 px-6 text-center text-emerald-400 font-bold text-[10px]">READY</td>

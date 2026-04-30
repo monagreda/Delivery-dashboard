@@ -29,7 +29,7 @@ const HistoryTable = ({ data, role }) => {
                                 )}
                                 <td className="py-3 px-6 text-xs">
                                     {item.delivered_at
-                                        ? new Date(item.delivered_at + "Z").toLocaleString('es-VE', {
+                                        ? new Date(item.delivered_at).toLocaleString('es-VE', {
                                             day: '2-digit',
                                             month: '2-digit',
                                             year: 'numeric',
@@ -54,7 +54,7 @@ const HistoryTable = ({ data, role }) => {
                                 <span className="text-emerald-400 text-[10px] font-bold">DELIVERED</span>
                             </div>
                             <div className="flex justify-between text-slate-300 text-sm">
-                                <span>{new Date(item.delivered_at + "Z").toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit', hour12: true })}</span>
+                                <span>{new Date(item.delivered_at).toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit', hour12: true })}</span>
                                 {role !== 'user' && <span className="text-indigo-400 font-bold text-xs">ZONA {item.zone}</span>}
                             </div>
                             {(role === 'admin' || role === 'user') && (

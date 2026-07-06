@@ -198,19 +198,31 @@ const OrderForm = () => {
         e.preventDefault();
         const formData = new FormData(e.target);
 
+        parseFloat(formData.get("weight_kg"));
+        const volume = parseFloat(formData.get("volume_m3"));
+
         const payload = {
-            lng: selectedOrderCoords.lng,
-            lat: selectedOrderCoords.lat,
-            origin_address: selectedHub.address,
-            origin_postcode: selectedHub.postcode,
-            destination_address: destinationInput,
-            destination_postcode: selectedOrderPostcode,
-            weight_kg: parseFloat(formData.get("weight_kg")),
-            volume_m3: parseFloat(formData.get("volume_m3")),
-            cargo_description: formData.get("cargo_description"),
+            // Nos aseguramos de que las coordenadas viajen como floats puros
+            lng: parseFloat(selectedOrderCoords?.lng || 0),
+            lat: parseFloat(selectedOrderCoords?.lat || 0),
+
+            origin_address: selectedHub?.address || "Hub Central España",
+            origin_postcode: selectedHub?.postcode || "28001",
+
+            destination_address: destinationInput || "",
+            // Evitamos que viaje undefined si el código postal aún no ha cargado
+            destination_postcode: selectedOrderPostcode || "28001",
+
+            // Si el usuario no escribió nada (NaN), enviamos 0 en su lugar para satisfacer a Pydantic
+            weight_kg: isNaN(weight) ? 0.0 : weight,
+            volume_m3: isNaN(volume) ? 0.0 : volume,
+
+            cargo_description: formData.get("cargo_description") || "Sin descripción",
             origin_country: "España",
             destination_country: "España"
         };
+
+        console.log("🚀 Enviando este payload exacto a Render:", payload);
 
         await createOrder(payload);
     };

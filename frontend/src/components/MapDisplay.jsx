@@ -8,6 +8,7 @@ import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
 import { useMap, ZONE_COLORS } from '../context/MapContext';
 import { AdminPopup, UserPopup, DriverPopup } from './OrderPopups';
+import OrderFormModal from '../pages/OrderFom';
 
 const MapDisplay = ({ isDark }) => {
     const { token, isLoggedIn, role } = useAuth();
@@ -23,7 +24,15 @@ const MapDisplay = ({ isDark }) => {
         assignOrderToDriver,
         createOrder,
         zonesData,
-        setMyOrders, // Asegúrate de que coincida con el nombre en MapContext
+        setMyOrders,
+        setIsOrderFormOpen,
+        setSelectedOrderCoords,
+        setSelectedOrderAddress,
+        setSelectedOrderPostcode,
+        selectedOrderCoords,
+        selectedOrderAddress,
+        setClickAddressDetails,
+        setEstimatedDistance,
     } = useMap();
 
     // 1. Referencia para mantener los drivers actualizados dentro de los popups
@@ -125,8 +134,8 @@ const MapDisplay = ({ isDark }) => {
         map.current = new maplibregl.Map({
             container: mapContainer.current,
             style: `https://api.maptiler.com/maps/${isDark ? 'streets-v2-dark' : 'streets-v2'}/style.json?key=${MAPTILER_KEY}`,
-            center: [-66.89, 10.48], // Caracas
-            zoom: 12
+            center: [-3.70379, 40.41678], // Centro de Madrid
+            zoom: 13
         });
 
         map.current.on('style.load', setupLayers);
@@ -159,25 +168,74 @@ const MapDisplay = ({ isDark }) => {
 
         // Crear pedido con clic en el mapa
         map.current.on('click', async (e) => {
+
             const features = map.current.queryRenderedFeatures(e.point, { layers: ['puntos-entrega'] });
             if (features.length > 0) return; // Si clickeamos un punto, no crear uno nuevo
 
             const { lng, lat } = e.lngLat;
 
-            if (window.confirm("¿Añadir pedido aquí?")) {
-                try {
-                    // ✅ CAMBIO CLAVE: Usamos la función del contexto en lugar de axios.post
-                    // Esta función internamente debe hacer el POST y actualizar el estado de 'myOrders'
-                    await createOrder(lng, lat);
+            // Abrir el formulario y guardar coordenadas de inmediato
+            setSelectedOrderCoords({ lng, lat });
+            setIsOrderFormOpen(true);
+            setSelectedOrderAddress('Buscando dirección...');
+            setSelectedOrderPostcode('');
 
-                    // Refrescamos las zonas para actualizar los colores/rutas en el mapa
-                    await fetchZones();
+            if (typeof setClickAddressDetails === 'function') {
+                setClickAddressDetails({ address: 'Buscando...', postcode: '', country: '' });
+            }
 
-                } catch (err) {
-                    // El error ya suele manejarse dentro de createOrder, 
-                    // pero puedes poner un alert extra si lo prefieres
-                    console.error("Error en la creación:", err);
+            // Consultar a Maptiler la calle exacta en segundo plano para el formulario
+            try {
+                setStatus('🔍 Buscando dirección...');
+                const response = await fetch(
+                    `https://api.maptiler.com/geocoding/${lng},${lat}.json?key=${MAPTILER_KEY}`
+                );
+                const data = await response.json();
+
+                if (data.features && data.features.length > 0) {
+                    const firstFeature = data.features[0];
+                    const fullAddress = firstFeature.place_name;
+
+                    setSelectedOrderAddress(fullAddress);
+
+                    let postcode = '';
+                    let country = '';
+
+                    if (firstFeature.context) {
+                        const postalContext = firstFeature.context.find(c => c.id && c.id.startsWith('postal_code'));
+                        if (postalContext) postcode = postalContext.text;
+
+                        const countryContext = firstFeature.context.find(c => c.id && c.id.startsWith('country'));
+                        if (countryContext) country = countryContext.text;
+                    }
+
+                    if (!postcode && firstFeature.properties?.postal_code) {
+                        postcode = firstFeature.properties.postal_code;
+                    }
+
+                    setSelectedOrderPostcode(postcode || 'S/N');
+
+                    if (typeof setClickAddressDetails === 'function') {
+                        setClickAddressDetails({
+                            address: fullAddress,
+                            postcode: postcode || 'S/N',
+                            country: country || 'Spain'
+                        });
+                    }
+
+                    setStatus('✅ Dirección cargada');
+                } else {
+                    setSelectedOrderAddress('Dirección no encontrada');
+                    setSelectedOrderPostcode('');
+                    if (typeof setClickAddressDetails === 'function') {
+                        setClickAddressDetails({ address: 'Dirección no encontrada', postcode: '', country: '' });
+                    }
                 }
+            } catch (error) {
+                console.error("Error al geocodificar:", error);
+                setSelectedOrderAddress('Error al obtener la dirección');
+                setSelectedOrderPostcode('');
+                setStatus('❌ Error de red en mapa');
             }
         });
 
@@ -253,7 +311,7 @@ const MapDisplay = ({ isDark }) => {
                 map.current = null;
             }
         };
-    }, []);
+    }, [isLoggedIn, setupLayers]);
 
     // 3. Actualización de datos en tiempo real (Híbrida: Admin y User)
     useEffect(() => {
@@ -322,7 +380,12 @@ const MapDisplay = ({ isDark }) => {
         }
     }, [showRoutes]);
 
-    return <div ref={mapContainer} className="w-full h-full" />;
+    return (
+        <div className="relative w-full h-full">
+            <div ref={mapContainer} className="w-full h-full" />
+            <OrderFormModal />
+        </div>
+    );
 };
 
 export default MapDisplay;

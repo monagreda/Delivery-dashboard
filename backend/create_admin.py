@@ -1,5 +1,5 @@
 import sqlite3
-from auth import get_password_hash
+from backend.app.auth import get_password_hash
 
 DB_PATH = "delivery.db"
 

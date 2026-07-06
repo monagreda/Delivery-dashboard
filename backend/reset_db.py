@@ -1,7 +1,7 @@
 import sqlite3
 import os
 # Importamos desde el mismo directorio
-from auth import get_password_hash 
+from backend.app.auth import get_password_hash 
 
 # Al estar dentro de /backend, la DB se creará allí mismo
 DB_NAME = "delivery.db"

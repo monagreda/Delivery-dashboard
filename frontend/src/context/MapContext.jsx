@@ -9,6 +9,9 @@ export const MapProvider = ({ children }) => {
     const { token, role, logout, isLoggedIn } = useAuth();
     const map = useRef(null);
     const mapContainer = useRef(null);
+    const [isOrderFormOpen, setIsOrderFormOpen] = useState(false);
+    const [selectedOrderCoords, setSelectedOrderCoords] = useState(null);
+    const [selectedOrderAddress, setSelectedOrderAddress] = useState('');
 
     // Estados relacionados con zonas y optimización
     const [zones, setZones] = useState(4);
@@ -20,6 +23,14 @@ export const MapProvider = ({ children }) => {
     const [isLoading, setIsLoading] = useState(false);
     const [drivers, setDrivers] = useState([]); // lista de conductores
     const [selectedOrder, setSelectedOrder] = useState(null)
+    const [selectedOrderPostcode, setSelectedOrderPostcode] = useState('');
+    const [originCoords, setOriginCoords] = useState({ lng: -3.70379, lat: 40.41678 }); // Madrid por defecto
+    const [clickAddressDetails, setClickAddressDetails] = useState({
+        address: '',
+        postCode: '',
+        country: '',
+    }); // Detalles de la dirección al hacer clic
+    const [estimatedDistance, setEstimatedDistance] = useState(null); // Distancia estimada desde MapTiler
     const [driverLocation, setDriverLocation] = useState(null);
     const watchId = useRef(null); //apagar el gps cuando no se esta usando
     const [myOrders, setMyOrders] = useState([]); // Pedidos específicos del driver
@@ -119,30 +130,32 @@ export const MapProvider = ({ children }) => {
 
     // Crear orden
     // DENTRO DE MapContext.jsx
-    const createOrder = useCallback(async (lng, lat) => {
+    const createOrder = useCallback(async (orderData) => {
         try {
-            setStatus('Creando pedido...');
+            setStatus('Creando pedido de carga...');
 
-            // El backend crea el pedido
-            const res = await axios.post(`${import.meta.env.VITE_API_URL}/orders?lng=${lng}&lat=${lat}`, {}, {
-                headers: { Authorization: `Bearer ${token}` }
+            // Hacemos el POST enviando orderData en el cuerpo (body) de la petición
+            const res = await axios.post(`${import.meta.env.VITE_API_URL}/orders`, orderData, {
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
             });
 
-            // Actualizamos la lista del sidebar inmediatamente
             if (res.data) {
+                // Actualizamos la lista local y cerramos el formulario
                 setMyOrders(prev => [...prev, res.data]);
+                setIsOrderFormOpen(false);
+                setSelectedOrderCoords(null);
             }
 
             setStatus('✅ Pedido creado');
-
-            // REFRESCAMOS TODO: 
-            // Al llamar a fetchZones, se ejecuta la lógica que SÍ tiene el geojson definido
             await fetchZones(zones);
 
         } catch (err) {
             console.error("Error al crear pedido:", err);
             setStatus('❌ Error al crear pedido');
-            throw err; // Re-lanzamos para que el try/catch de MapDisplay también lo vea
+            throw err;
         }
     }, [token, fetchZones, zones]);
 
@@ -275,6 +288,27 @@ export const MapProvider = ({ children }) => {
         }
     }, [token, fetchZones, zones]);
 
+    // Función para reportar un incidente (solo Drivers)
+    const reportIncident = useCallback(async (orderId, incidentType, description) => {
+        try {
+            setStatus('Reportando incidente...');
+            await axios.patch(`${import.meta.env.VITE_API_URL}/orders/${orderId}/incident`, {
+                incident_type: incidentType,
+                description: description
+            }, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+
+            setStatus('⚠️ Incidente reportado');
+
+            // Refrescamos los pedidos para que el estado pase a 'incident'
+            fetchZones(zones);
+        } catch (err) {
+            console.error("Error al reportar incidente:", err);
+            setStatus('❌ Error al reportar incidente');
+        }
+    }, [token, fetchZones, zones]);
+
     // 3. DISPARADOR AUTOMÁTICO (Fuera de fetchZones)
     // Este efecto vigila 'zones' y 'token'. Si cambian, recarga los puntos.
     useEffect(() => {
@@ -282,6 +316,44 @@ export const MapProvider = ({ children }) => {
             fetchZones(zones);
         }
     }, [zones, token, isLoggedIn, fetchZones]);
+
+    // ============================================================================================================================
+    // 🎯 EFECTO GUARDIÁN: Recalcula la distancia en tiempo real si cambia el Origen (Sede) o el Destino
+    // ============================================================================================================================
+    useEffect(() => {
+        // Si no tenemos origen o destino seleccionado, vaciamos la distancia
+        if (!originCoords || !selectedOrderCoords) {
+            setEstimatedDistance(null);
+            return;
+        }
+
+        try {
+            const lat1 = originCoords.lat;
+            const lng1 = originCoords.lng;
+            const lat2 = selectedOrderCoords.lat;
+            const lng2 = selectedOrderCoords.lng;
+
+            const R = 6371; // Radio de la Tierra en Kilómetros
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLng = (lng2 - lng1) * Math.PI / 180;
+
+            const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            const distanciaLineaRecta = R * c;
+
+            // Tu factor de corrección vial (* 1.3) para simular curvas reales
+            const distanciaEstimadaCarretera = distanciaLineaRecta * 1.3;
+
+            console.log(`💥 [Distancia Reactiva] De Sede [${lat1}, ${lng1}] a Destino [${lat2}, ${lng2}] => ${distanciaEstimadaCarretera.toFixed(2)} KM`);
+
+            setEstimatedDistance(distanciaEstimadaCarretera);
+        } catch (error) {
+            console.error("Error en cálculo reactivo de distancia:", error);
+            setEstimatedDistance(15.0); // Fallback preventivo
+        }
+    }, [originCoords, selectedOrderCoords]); // 👈 ¡Vigila ambos cambios vitales!
 
     return (
         <MapContext.Provider value={{
@@ -305,7 +377,22 @@ export const MapProvider = ({ children }) => {
             myOrders,
             setMyOrders,
             isLoading,
-            markAsDelivered
+            markAsDelivered,
+            reportIncident,
+            isOrderFormOpen,
+            setIsOrderFormOpen,
+            selectedOrderCoords,
+            setSelectedOrderCoords,
+            selectedOrderAddress,
+            setSelectedOrderAddress,
+            selectedOrderPostcode,
+            setSelectedOrderPostcode,
+            clickAddressDetails,
+            setClickAddressDetails,
+            estimatedDistance,
+            setEstimatedDistance,
+            originCoords,
+            setOriginCoords
         }}>
             {children}
         </MapContext.Provider>

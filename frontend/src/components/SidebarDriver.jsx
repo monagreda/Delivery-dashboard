@@ -1,6 +1,6 @@
 import React from 'react';
 import { useMap } from '../context/MapContext';
-import { Navigation, MapPin, Power, Coffee, PackageCheck } from 'lucide-react';
+import { Navigation, MapPin, Power, Coffee, PackageCheck, AlertTriangle } from 'lucide-react';
 import SidebarSkeleton from './SidebarSkeleton';
 
 const SidebarDriver = () => {
@@ -12,13 +12,14 @@ const SidebarDriver = () => {
         myOrders,
         setMyOrders, // Asegúrate de que coincida con el nombre en MapContext
         isLoading, // Asegúrate de que coincida con el nombre en MapContext
-        markAsDelivered
+        markAsDelivered,
+        reportIncident, // Asegúrate de que coincida con el nombre en MapContext
     } = useMap();
 
     if (isLoading) return <SidebarSkeleton />;
 
     return (
-        <div className="fixed bottom-5 left-5 right-5 md:w-80 bg-white/95 dark:bg-slate-900/95 p-6 rounded-3xl shadow-2xl z-[1000] border border-slate-200 dark:border-slate-800">
+        <div className="fixed bottom-5 left-5 right-5 md:w-80 bg-white/95 dark:bg-slate-900/95 p-6 rounded-3xl shadow-2xl z-1000 border border-slate-200 dark:border-slate-800">
             <div className="flex justify-between items-center mb-6">
                 <h3 className="font-bold dark:text-white text-lg">Mi Ruta</h3>
                 <span className={`text-[10px] px-2 py-1 rounded-full font-bold transition-colors ${driverLocation ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
@@ -85,6 +86,22 @@ const SidebarDriver = () => {
                                         title="Marcar como entregado"
                                     >
                                         <PackageCheck size={16} className="text-green-600 group-hover:text-white" />
+                                    </button>
+
+                                    {/* ⚠️ Botón Reportar Incidente */}
+                                    <button
+                                        onClick={() => {
+                                            const razon = prompt("Escribe el tipo de incidente (accidente, especificaciones_erroneas, objetos_ilicitos, otro):");
+                                            if (!razon) return;
+                                            const desc = prompt("Por favor, introduce una breve descripción del suceso:");
+                                            if (!desc) return;
+
+                                            reportIncident(oId, razon, desc);
+                                        }}
+                                        className="bg-white dark:bg-slate-700 p-2 rounded-lg shadow-sm hover:bg-red-500 hover:text-white transition-all group"
+                                        title="Reportar Incidente / Siniestro"
+                                    >
+                                        <AlertTriangle size={16} className="text-red-600 group-hover:text-white" />
                                     </button>
                                 </div>
                             );

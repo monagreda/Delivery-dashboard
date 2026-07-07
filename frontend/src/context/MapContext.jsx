@@ -135,7 +135,7 @@ export const MapProvider = ({ children }) => {
             setStatus('Creando pedido de carga...');
 
             // Hacemos el POST enviando orderData en el cuerpo (body) de la petición
-            const res = await axios.post(`${import.meta.env.VITE_API_URL}/orders`, orderData, {
+            const res = await axios.post(`${import.meta.env.VITE_API_URL / docs}/orders`, orderData, {
                 headers: {
                     Authorization: `Bearer ${token}`,
                     'Content-Type': 'application/json'

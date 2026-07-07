@@ -121,3 +121,22 @@ async def report_order_incident(
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=500, detail=f"Error al procesar siniestro: {str(e)}")
+    
+# Ruta para actualizar la ubicación del repartidor en tiempo real
+@router.put("/{order_id}/location")
+async def update_order_location(order_id: str, lng: float, lat: float, current_user = Depends(get_current_user), conn = Depends(get_db)):
+    try:
+        with conn:
+            with conn.cursor() as cursor:
+                # Actualiza la ubicación geográfica de la orden en ruta
+                cursor.execute(
+                    "UPDATE orders SET lat = %s, lng = %s WHERE order_id = %s RETURNING order_id",
+                    (lat, lng, order_id)
+                )
+                updated = cursor.fetchone()
+                if not updated:
+                    raise HTTPException(status_code=404, detail="Orden no encontrada")
+        return {"status": "success", "message": "Ubicación del repartidor actualizada"}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Error GPS: {str(e)}")

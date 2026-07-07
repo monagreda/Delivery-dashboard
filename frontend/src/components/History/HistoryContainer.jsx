@@ -13,7 +13,9 @@ const HistoryContainer = () => {
     useEffect(() => {
         const fetchHistory = async () => {
             try {
-                const endpoint = `https://delivery-dashboard-4szq.onrender.com/history/${role}`;
+                const baseUrl = import.meta.env.VITE_API_URL;
+                const endpoint = `${baseUrl}/history/${role}`;
+
                 const res = await axios.get(endpoint, {
                     headers: { Authorization: `Bearer ${token}` }
                 });
@@ -32,7 +34,7 @@ const HistoryContainer = () => {
             {/* Botón Circular Flotante - Siempre visible si está logueado */}
             <button
                 onClick={() => setIsVisible(!isVisible)}
-                className="fixed bottom-6 right-6 z-[2000] bg-indigo-950/60 hover:bg-indigo-600/60 text-white p-4 rounded-full shadow-2xl transition-all transform hover:scale-110 active:scale-95 flex items-center justify-center"
+                className="fixed bottom-6 right-6 z-2000 bg-indigo-950/60 hover:bg-indigo-600/60 text-white p-4 rounded-full shadow-2xl transition-all transform hover:scale-110 active:scale-95 flex items-center justify-center"
             >
                 {isVisible ? (
                     <X size={24} strokeWidth={2.5} />

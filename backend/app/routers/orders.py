@@ -6,7 +6,7 @@ from app.auth import get_current_user
 from app.models import IncidentReport, OrderCreate
 
 router = APIRouter(
-    prefix="",
+    prefix="/orders",
     tags=["Orders"]
 )
 

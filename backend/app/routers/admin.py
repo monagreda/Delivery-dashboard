@@ -11,7 +11,7 @@ from app.auth import get_current_admin
 from app.models import OrderAssignment
 
 router = APIRouter(
-    prefix="",
+    prefix="/admin",
     tags=["Admin & AI Optimization"]
 )
 

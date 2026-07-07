@@ -49,7 +49,7 @@ export const MapProvider = ({ children }) => {
 
         try {
             const url = role === 'admin'
-                ? `${import.meta.env.VITE_API_URL}/admin/optimize-zones?n_clusters=${finalZones}`
+                ? `${import.meta.env.VITE_API_URL}/admin/optimize-zones?n_clusters=${numZones}`
                 : role === 'driver'
                     ? `${import.meta.env.VITE_API_URL}/driver/my-orders`
                     : `${import.meta.env.VITE_API_URL}/orders`;
@@ -163,24 +163,21 @@ export const MapProvider = ({ children }) => {
     const assignOrderToDriver = useCallback(async (orderId, driverId) => {
         try {
             setStatus('Asignando pedido...');
-
-            // 🎯 Cambiamos a POST, apuntamos a /admin/assign-order y estructuramos las llaves exactas de Python
-            await axios.post(`${import.meta.env.VITE_API_URL}/admin/assign-order`,
-                {
-                    order_id: orderId,
-                    driver_id: parseInt(driverId)
-                },
-                { headers: { Authorization: `Bearer ${token}` } }
+            await axios.patch(`${import.meta.env.VITE_API_URL}/orders/${orderId}/assign`,
+                { driver_id: parseInt(driverId) },
+                { headers: { Authorization: `Bearer ${token}` } },
             );
 
             setStatus('✅ Pedido asignado');
-            setSelectedOrder(null);
+            setSelectedOrder(null); // Cerramos el popup tras asignar
+
+            // Refrescamos los datos para que el mapa se actualice (puedes volver a llamar a fetchZones)
             fetchZones(zones);
         } catch (err) {
             console.error("Error asignando:", err);
             setStatus('❌ Error al asignar');
         }
-    }, [token, fetchZones, zones]);
+    }, [token, fetchZones, zones])
 
 
 

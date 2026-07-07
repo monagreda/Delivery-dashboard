@@ -44,6 +44,7 @@ const MapDisplay = ({ isDark }) => {
     }, [drivers]);
 
     const MAPTILER_KEY = import.meta.env.VITE_MAPTILER_KEY;
+    const
 
     // 1. Configuración de capas (Sincronizado con MapContext)
     const setupLayers = useCallback(() => {
@@ -114,7 +115,7 @@ const MapDisplay = ({ isDark }) => {
     const deleteOrder = async (orderId) => {
         if (!window.confirm(`¿Seguro que quieres eliminar el pedido ${orderId}?`)) return;
         try {
-            await axios.delete(`https://delivery-dashboard-4szq.onrender.com/orders/${orderId}`, {
+            await axios.delete(`https://delivery-dashboard-4lyg.onrender.com/orders/${orderId}`, {
                 headers: { Authorization: `Bearer ${token}` }
             });
             fetchZones(zones);
@@ -148,7 +149,7 @@ const MapDisplay = ({ isDark }) => {
             map.current.getCanvas().style.cursor = '';
             try {
                 setStatus('📍 Reubicando...');
-                await axios.put(`https://delivery-dashboard-4szq.onrender.com/orders/${orderId}/location?lng=${lng}&lat=${lat}`, {}, {
+                await axios.put(`https://delivery-dashboard-4lyg.onrender.com/orders/${orderId}/location?lng=${lng}&lat=${lat}`, {}, {
                     headers: { Authorization: `Bearer ${token}` }
                 });
                 fetchZones(zones);

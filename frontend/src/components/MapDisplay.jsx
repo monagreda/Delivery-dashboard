@@ -44,7 +44,6 @@ const MapDisplay = ({ isDark }) => {
     }, [drivers]);
 
     const MAPTILER_KEY = import.meta.env.VITE_MAPTILER_KEY;
-    const
 
     // 1. Configuración de capas (Sincronizado con MapContext)
     const setupLayers = useCallback(() => {

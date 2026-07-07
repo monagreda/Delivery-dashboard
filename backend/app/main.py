@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import init_db
-from app.routers import auth_router, orders_router, admin_router, fuel_router
+from app.routers import auth_router, orders_router, admin_router, fuel_router, history_router
 
 app = FastAPI(title="LogiPredict AI API")
 
@@ -29,6 +29,7 @@ app.include_router(auth_router)
 app.include_router(orders_router)
 app.include_router(admin_router)
 app.include_router(fuel_router)
+app.include_router(history_router)
 
 @app.get("/")
 def home():

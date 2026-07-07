@@ -15,7 +15,7 @@ router = APIRouter(
     tags=["Admin & AI Optimization"]
 )
 
-GRAPHHOPPER_KEY = os.getenv("GRAPHHOPPER_KEY")
+GRAPHHOPPER_KEY = os.getenv("GH_KEY")
 
 @router.get("/drivers")
 async def get_available_drivers(admin_user=Depends(get_current_admin), conn=Depends(get_db)):

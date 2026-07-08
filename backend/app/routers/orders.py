@@ -1,5 +1,6 @@
 # app/routers/orders.py
 import uuid
+import time
 from fastapi import APIRouter, Depends, HTTPException
 from app.database import get_db
 from app.auth import get_current_user
@@ -12,7 +13,7 @@ router = APIRouter(
 
 @router.post("")
 async def create_new_order(order_data: OrderCreate, current_user = Depends(get_current_user), conn=Depends(get_db)):
-    order_id = str(uuid.uuid4())[:8] # Genera un ID corto único
+    order_id = f"GTV-{int(time.time())}" 
     try:
         with conn:
             with conn.cursor() as cursor:
@@ -38,16 +39,75 @@ async def create_new_order(order_data: OrderCreate, current_user = Depends(get_c
         conn.rollback()
         raise HTTPException(status_code=500, detail=f"Error al guardar pedido: {str(e)}")
 
-@router.get("/my-orders")
-async def get_my_orders(current_user = Depends(get_current_user), conn=Depends(get_db)):
-    role = current_user.get("role")
+# 🎯 RESTAURADO: GET /orders que devuelve GeoJSON para el mapa del usuario/admin
+@router.get("")
+async def get_all_orders_geojson(current_user = Depends(get_current_user), conn=Depends(get_db)):
     with conn.cursor() as cursor:
-        if role == "driver":
-            cursor.execute("SELECT * FROM orders WHERE driver_id = %s ORDER BY created_at DESC", (current_user["id"],))
-        else:
-            cursor.execute("SELECT * FROM orders WHERE user_id = %s ORDER BY created_at DESC", (current_user["id"],))
-        orders = cursor.fetchall()
-    return orders
+        cursor.execute(
+            "SELECT lng, lat, order_id, zone, status, driver_id FROM orders WHERE user_id = %s", 
+            (current_user["id"],)
+        )
+        rows = cursor.fetchall()
+
+    features = [{
+        "type": "Feature",
+        "geometry": {"type": "Point", "coordinates": [r['lng'], r['lat']]},
+        "properties": {
+            "zone": r['zone'], 
+            "order_id": r['order_id'], 
+            "status": r["status"], 
+            "driver_id": r["driver_id"]
+        }
+    } for r in rows]
+    return {"type": "FeatureCollection", "features": features}
+
+# 🎯 RESTAURADO: El endpoint del Conductor con formato GeoJSON (Evita el 404)
+@router.get("/driver/my-orders")
+async def get_driver_orders_geojson(current_user = Depends(get_current_user), conn=Depends(get_db)):
+    if current_user["role"] != "driver":
+        raise HTTPException(status_code=403, detail="Acceso denegado")
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT order_id, lng, lat, status, driver_id FROM orders WHERE driver_id = %s AND status = 'assigned'", 
+            (current_user["id"],)
+        )
+        rows = cursor.fetchall()
+    
+    features = [{
+        "type": "Feature",
+        "geometry": {"type": "Point", "coordinates": [r["lng"], r["lat"]]},
+        "properties": {"order_id": r["order_id"], "status": r["status"], "driver_id": r["driver_id"]}
+    } for r in rows]
+    return {"type": "FeatureCollection", "features": features}
+
+# 🎯 RESTAURADO: El endpoint de Drag & Drop para actualizar ubicación en el mapa
+@router.put("/{order_id}/location")
+async def update_order_location(order_id: str, lng: float, lat: float, current_user = Depends(get_current_user), conn=Depends(get_db)):
+    user_id = current_user["id"]
+    user_role = current_user["role"]
+
+    with conn:
+        with conn.cursor() as cursor:
+            if user_role == "admin":
+                cursor.execute("UPDATE orders SET lng = %s, lat = %s WHERE order_id = %s", (lng, lat, order_id))
+            else:
+                cursor.execute(
+                    "UPDATE orders SET lng = %s, lat = %s WHERE order_id = %s AND user_id = %s",
+                    (lng, lat, order_id, user_id)
+                )
+            if cursor.rowcount == 0:
+                raise HTTPException(status_code=404, detail="No encontrado o sin permisos")
+    return {"status": "success", "message": "Ubicación actualizada"}
+
+# 🎯 RESTAURADO: El endpoint para eliminar pedidos desde el mapa
+@router.delete("/{order_id}")
+async def delete_order(order_id: str, current_user = Depends(get_current_user), conn=Depends(get_db)):
+    with conn:
+        with conn.cursor() as cursor:
+            cursor.execute("DELETE FROM orders WHERE order_id = %s AND user_id = %s", (order_id, current_user["id"]))
+            if cursor.rowcount == 0:
+                raise HTTPException(status_code=404, detail="No se pudo eliminar")
+    return {"message": "Eliminado con éxito"}
 
 @router.patch("/{order_id}/deliver")
 async def deliver_order(order_id: str, current_user = Depends(get_current_user), conn=Depends(get_db)):
@@ -68,57 +128,27 @@ async def deliver_order(order_id: str, current_user = Depends(get_current_user),
                 )
                 updated = cursor.fetchone()
                 if not updated:
-                    raise HTTPException(status_code=404, detail="Pedido no encontrado o no asignado a este conductor")
+                    raise HTTPException(status_code=404, detail="Pedido no encontrado o no asignado")
         return {"message": "Pedido marcado como entregado", "order": updated}
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.patch("/{order_id}/incident")
-async def report_order_incident(
-    order_id: str, 
-    incident_data: IncidentReport, 
-    current_user = Depends(get_current_user), 
-    conn = Depends(get_db)
-):
-    # Restricción de seguridad: Solo los conductores en ruta o asignados reportan siniestros
+async def report_order_incident(order_id: str, incident_data: IncidentReport, current_user = Depends(get_current_user), conn = Depends(get_db)):
     if current_user.get("role") != "driver":
         raise HTTPException(status_code=403, detail="Solo los conductores pueden reportar incidentes")
-    
     try:
         with conn:
             with conn.cursor() as cursor:
-                # 1. Actualizamos el estado de la orden a 'incident' y podemos guardar los detalles 
-                # en columnas dedicadas si las agregas a tu tabla, o simplemente congelar la orden.
                 cursor.execute(
-                    """
-                    UPDATE orders 
-                    SET status = 'incident' 
-                    WHERE order_id = %s AND driver_id = %s 
-                    RETURNING order_id, status
-                    """,
+                    "UPDATE orders SET status = 'incident' WHERE order_id = %s AND driver_id = %s RETURNING order_id, status",
                     (order_id, current_user["id"])
                 )
                 updated = cursor.fetchone()
-                
                 if not updated:
-                    raise HTTPException(
-                        status_code=404, 
-                        detail="Pedido no encontrado o no está asignado a tu usuario"
-                    )
-                
-                # OPTATIVO: Si tienes una tabla de auditoría o logs de incidentes, puedes meter un INSERT aquí:
-                # cursor.execute(
-                #     "INSERT INTO order_incidents (order_id, type, description, driver_id) VALUES (%s, %s, %s, %s)",
-                #     (order_id, incident_data.incident_type, incident_data.description, current_user["id"])
-                # )
-                
-        return {
-            "message": "Incidente registrado de inmediato. Central de Go Tovar alertada.", 
-            "order": updated
-        }
-        
+                    raise HTTPException(status_code=404, detail="Pedido no encontrado")
+        return {"message": "Incidente registrado de inmediato.", "order": updated}
     except Exception as e:
         conn.rollback()
-        raise HTTPException(status_code=500, detail=f"Error al procesar siniestro: {str(e)}")
-    
+        raise HTTPException(status_code=500, detail=str(e))

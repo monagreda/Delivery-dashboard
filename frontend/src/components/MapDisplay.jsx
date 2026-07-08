@@ -114,7 +114,7 @@ const MapDisplay = ({ isDark }) => {
     const deleteOrder = async (orderId) => {
         if (!window.confirm(`¿Seguro que quieres eliminar el pedido ${orderId}?`)) return;
         try {
-            await axios.delete(`https://delivery-dashboard-4lyg.onrender.com/orders/${orderId}`, {
+            await axios.delete(`${import.meta.env.VITE_API_URL}/orders/${orderId}`, {
                 headers: { Authorization: `Bearer ${token}` }
             });
             fetchZones(zones);
@@ -148,7 +148,7 @@ const MapDisplay = ({ isDark }) => {
             map.current.getCanvas().style.cursor = '';
             try {
                 setStatus('📍 Reubicando...');
-                await axios.put(`https://delivery-dashboard-4lyg.onrender.com/orders/${orderId}/location?lng=${lng}&lat=${lat}`, {}, {
+                await axios.put(`${import.meta.env.VITE_API_URL}/orders/${orderId}/location?lng=${lng}&lat=${lat}`, {}, {
                     headers: { Authorization: `Bearer ${token}` }
                 });
                 fetchZones(zones);
@@ -282,7 +282,7 @@ const MapDisplay = ({ isDark }) => {
                             if (!driverId) return;
                             await assignOrderToDriver(id, driverId);
                             popup.remove();
-                            fetchZones(); // Refrescar para ver el cambio de color a verde
+                            fetchZones(zones); // Refrescar para ver el cambio de color a verde
                         }}
                     />
                 );

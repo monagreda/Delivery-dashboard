@@ -39,37 +39,54 @@ export const MapProvider = ({ children }) => {
     // ==========================================================================================================================
     // Función para actualizar o crear el marcador del conductor en el mapa
     const fetchZones = useCallback(async (numZones) => {
-        // Si no hay token o no está logueado, no hace nada
         if (!token) return;
 
         try {
             setIsLoading(true);
             setStatus('Cargando datos...');
 
-            // 🎯 SI EL ROL ES DRIVER: Consumimos su ruta simplificada
+            // 🎯 1. CASO CONDUCTOR
             if (role === 'driver') {
                 const res = await axios.get(`${import.meta.env.VITE_API_URL}/orders/driver/my-orders`, {
                     headers: { Authorization: `Bearer ${token}` }
                 });
-
                 if (res.data) {
-                    // 1. Guardamos el GeoJSON para que se pinte en el mapa
                     setZonesData(res.data);
-
-                    // 2. Extraemos las propiedades para actualizar el SidebarDriver (myOrders)
-                    const ordersArray = res.data.features.map(f => ({
+                    const ordersArray = res.data.features ? res.data.features.map(f => ({
                         order_id: f.properties.order_id,
                         status: f.properties.status,
                         driver_id: f.properties.driver_id,
                         zone: f.properties.zone,
                         lng: f.geometry.coordinates[0],
                         lat: f.geometry.coordinates[1]
-                    }));
+                    })) : [];
                     setMyOrders(ordersArray);
                 }
-                setStatus('✅ Pedidos del conductor cargados');
+                setStatus('✅ Tus entregas cargadas');
             }
-            // 🎯 SI EL ROL ES ADMIN (O CUALQUIER OTRO): Mantiene la optimización por IA
+            // 🎯 2. CASO USUARIO COMÚN (¡Actualizado para cargar sus pedidos!)
+            else if (role === 'user') {
+                const res = await axios.get(`${import.meta.env.VITE_API_URL}/orders/user/my-orders`, {
+                    headers: { Authorization: `Bearer ${token}` }
+                });
+                if (res.data) {
+                    // Seteamos el GeoJSON para que MapDisplay pinte los puntos en el mapa
+                    setZonesData(res.data);
+
+                    // Convertimos las features en un array plano para que SidebarUser las liste
+                    const ordersArray = res.data.features ? res.data.features.map(f => ({
+                        order_id: f.properties.order_id,
+                        status: f.properties.status,
+                        driver_id: f.properties.driver_id,
+                        zone: f.properties.zone,
+                        lng: f.geometry.coordinates[0],
+                        lat: f.geometry.coordinates[1]
+                    })) : [];
+                    setMyOrders(ordersArray);
+                }
+                setStatus('✅ Tus pedidos cargados');
+            }
+            // 🎯 3. CASO ADMINISTRADOR
             else {
                 const finalZones = numZones || zones || 4;
                 const res = await axios.get(`${import.meta.env.VITE_API_URL}/admin/optimize-zones?n_clusters=${finalZones}`, {

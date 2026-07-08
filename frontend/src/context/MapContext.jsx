@@ -135,7 +135,7 @@ export const MapProvider = ({ children }) => {
             setStatus('Creando pedido de carga...');
 
             // Hacemos el POST enviando orderData en el cuerpo (body) de la petición
-            const res = await axios.post(`${import.meta.env.VITE_API_URL / docs}/orders`, orderData, {
+            const res = await axios.post(`${import.meta.env.VITE_API_URL}/orders`, orderData, {
                 headers: {
                     Authorization: `Bearer ${token}`,
                     'Content-Type': 'application/json'
@@ -163,8 +163,11 @@ export const MapProvider = ({ children }) => {
     const assignOrderToDriver = useCallback(async (orderId, driverId) => {
         try {
             setStatus('Asignando pedido...');
-            await axios.patch(`${import.meta.env.VITE_API_URL}/orders/${orderId}/assign`,
-                { driver_id: parseInt(driverId) },
+            await axios.post(`${import.meta.env.VITE_API_URL}/admin/assign-order`,
+                {
+                    order_id: orderId,
+                    driver_id: parseInt(driverId)
+                },
                 { headers: { Authorization: `Bearer ${token}` } },
             );
 

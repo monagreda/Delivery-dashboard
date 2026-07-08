@@ -24,22 +24,49 @@ async def get_available_drivers(admin_user=Depends(get_current_admin), conn=Depe
         drivers = cursor.fetchall()
     return drivers
 
+# backend/app/routers/admin.py
+
 @router.post("/assign-order")
 async def assign_order(assignment: OrderAssignment, admin_user=Depends(get_current_admin), conn=Depends(get_db)):
     try:
         with conn:
             with conn.cursor() as cursor:
+                # 🎯 1. Verificamos primero que el conductor exista y tenga el rol correcto
+                cursor.execute("SELECT id FROM users WHERE id = %s AND role = 'driver'", (assignment.driver_id,))
+                driver_exists = cursor.fetchone()
+                if not driver_exists:
+                    raise HTTPException(status_code=404, detail="El conductor especificado no existe o no tiene el rol correcto.")
+
+                # 🎯 2. Hacemos el UPDATE y retornamos los datos clave que usará el mapa
                 cursor.execute(
-                    "UPDATE orders SET driver_id = %s, status = 'assigned' WHERE order_id = %s RETURNING order_id, status",
+                    """
+                    UPDATE orders 
+                    SET driver_id = %s, status = 'assigned' 
+                    WHERE order_id = %s 
+                    RETURNING order_id, status, driver_id, zone
+                    """,
                     (assignment.driver_id, assignment.order_id)
                 )
                 updated = cursor.fetchone()
+                
                 if not updated:
                     raise HTTPException(status_code=404, detail="Pedido no encontrado")
-        return {"message": "Conductor asignado exitosamente", "order": updated}
+                    
+        # 🎯 3. Confirmamos los cambios en la transacción
+        conn.commit()
+        
+        return {
+            "status": "success", 
+            "message": "Conductor asignado exitosamente", 
+            "order": updated
+        }
+    except HTTPException as he:
+        raise he
     except Exception as e:
         conn.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+        # Esto imprimirá el error real en los logs de Render para que puedas auditarlo
+        print(f"🔥 Error en la base de datos al asignar: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error interno en la asignación: {str(e)}")
 
 @router.get("/optimize-zones")
 async def optimize_zones(n_clusters: int = 4, admin_user=Depends(get_current_admin), conn=Depends(get_db)):

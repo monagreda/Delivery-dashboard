@@ -39,7 +39,78 @@ async def create_new_order(order_data: OrderCreate, current_user = Depends(get_c
         conn.rollback()
         raise HTTPException(status_code=500, detail=f"Error al guardar pedido: {str(e)}")
 
-# 🎯 RESTAURADO: GET /orders que devuelve GeoJSON para el mapa del usuario/admin
+
+# 🌟 POSICIÓN CLAVE 1: Ruta específica del usuario (Arriba)
+@router.get("/user/my-orders")
+async def get_user_orders_geojson(current_user = Depends(get_current_user), conn = Depends(get_db)):
+    user_role = current_user.get("role") if isinstance(current_user, dict) else getattr(current_user, "role", "")
+    if str(user_role).strip().lower() != "user":
+        raise HTTPException(status_code=403, detail="Acceso denegado. Solo para clientes.")
+        
+    with conn.cursor() as cursor:
+        user_id = current_user["id"] if isinstance(current_user, dict) else current_user.id
+        cursor.execute(
+            """
+            SELECT order_id, lng, lat, status, driver_id, zone 
+            FROM orders 
+            WHERE user_id = %s
+            """, 
+            (user_id,)
+        )
+        rows = cursor.fetchall()
+    
+    features = [{
+        "type": "Feature",
+        "geometry": {
+            "type": "Point", 
+            "coordinates": [float(r["lng"]), float(r["lat"])]
+        },
+        "properties": {
+            "order_id": r["order_id"], 
+            "status": r["status"], 
+            "driver_id": r["driver_id"] if r["driver_id"] else 0,
+            "zone": r.get("zone", 0)
+        }
+    } for r in rows]
+    
+    return {"type": "FeatureCollection", "features": features}
+
+
+# 🌟 POSICIÓN CLAVE 2: Ruta específica del conductor (Arriba)
+@router.get("/driver/my-orders")
+async def get_driver_orders_geojson(current_user = Depends(get_current_user), conn = Depends(get_db)):
+    if current_user.get("role") != "driver":
+        raise HTTPException(status_code=403, detail="Acceso denegado. Solo para conductores.")
+        
+    with conn.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT order_id, lng, lat, status, driver_id, zone 
+            FROM orders 
+            WHERE driver_id = %s AND status = 'assigned'
+            """, 
+            (current_user["id"],)
+        )
+        rows = cursor.fetchall()
+    
+    features = [{
+        "type": "Feature",
+        "geometry": {
+            "type": "Point", 
+            "coordinates": [float(r["lng"]), float(r["lat"])]
+        },
+        "properties": {
+            "order_id": r["order_id"], 
+            "status": r["status"], 
+            "driver_id": r["driver_id"],
+            "zone": r.get("zone", 0)
+        }
+    } for r in rows]
+    
+    return {"type": "FeatureCollection", "features": features}
+
+
+# 🌟 POSICIÓN CLAVE 3: La ruta general (Abajo de las fijas)
 @router.get("")
 async def get_all_orders_geojson(current_user = Depends(get_current_user), conn=Depends(get_db)):
     with conn.cursor() as cursor:
@@ -61,31 +132,12 @@ async def get_all_orders_geojson(current_user = Depends(get_current_user), conn=
     } for r in rows]
     return {"type": "FeatureCollection", "features": features}
 
-# 🎯 RESTAURADO: El endpoint del Conductor con formato GeoJSON (Evita el 404)
-@router.get("/driver/my-orders")
-async def get_driver_orders_geojson(current_user = Depends(get_current_user), conn=Depends(get_db)):
-    if current_user["role"] != "driver":
-        raise HTTPException(status_code=403, detail="Acceso denegado")
-    with conn.cursor() as cursor:
-        cursor.execute(
-            "SELECT order_id, lng, lat, status, driver_id FROM orders WHERE driver_id = %s AND status = 'assigned'", 
-            (current_user["id"],)
-        )
-        rows = cursor.fetchall()
-    
-    features = [{
-        "type": "Feature",
-        "geometry": {"type": "Point", "coordinates": [r["lng"], r["lat"]]},
-        "properties": {"order_id": r["order_id"], "status": r["status"], "driver_id": r["driver_id"]}
-    } for r in rows]
-    return {"type": "FeatureCollection", "features": features}
 
-# 🎯 RESTAURADO: El endpoint de Drag & Drop para actualizar ubicación en el mapa
+# El resto de tus métodos PUT, PATCH y DELETE pueden quedarse abajo sin problemas
 @router.put("/{order_id}/location")
 async def update_order_location(order_id: str, lng: float, lat: float, current_user = Depends(get_current_user), conn=Depends(get_db)):
     user_id = current_user["id"]
     user_role = current_user["role"]
-
     with conn:
         with conn.cursor() as cursor:
             if user_role == "admin":
@@ -99,7 +151,6 @@ async def update_order_location(order_id: str, lng: float, lat: float, current_u
                 raise HTTPException(status_code=404, detail="No encontrado o sin permisos")
     return {"status": "success", "message": "Ubicación actualizada"}
 
-# 🎯 RESTAURADO: El endpoint para eliminar pedidos desde el mapa
 @router.delete("/{order_id}")
 async def delete_order(order_id: str, current_user = Depends(get_current_user), conn=Depends(get_db)):
     with conn:
@@ -113,17 +164,11 @@ async def delete_order(order_id: str, current_user = Depends(get_current_user), 
 async def deliver_order(order_id: str, current_user = Depends(get_current_user), conn=Depends(get_db)):
     if current_user.get("role") != "driver":
         raise HTTPException(status_code=403, detail="Solo los conductores pueden entregar pedidos")
-    
     try:
         with conn:
             with conn.cursor() as cursor:
                 cursor.execute(
-                    """
-                    UPDATE orders 
-                    SET status = 'delivered', delivered_at = NOW() 
-                    WHERE order_id = %s AND driver_id = %s 
-                    RETURNING order_id, status
-                    """,
+                    "UPDATE orders SET status = 'delivered', delivered_at = NOW() WHERE order_id = %s AND driver_id = %s RETURNING order_id, status",
                     (order_id, current_user["id"])
                 )
                 updated = cursor.fetchone()
@@ -152,77 +197,3 @@ async def report_order_incident(order_id: str, incident_data: IncidentReport, cu
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=500, detail=str(e))
-
-# 🎯 RESTAURADO: Endpoint para obtener pedidos de un usuario en formato GeoJSON
-@router.get("/user/my-orders")
-async def get_user_orders_geojson(current_user = Depends(get_current_user), conn = Depends(get_db)):
-    # 1. Asegurar que solo usuarios con rol 'user' (clientes) entren aquí
-    user_role = current_user.get("role") if isinstance(current_user, dict) else getattr(current_user, "role", "")
-    if str(user_role).strip().lower() != "user":
-        raise HTTPException(status_code=403, detail="Acceso denegado. Solo para clientes.")
-        
-    with conn.cursor() as cursor:
-        # 2. Consultar únicamente las órdenes creadas por este usuario específico
-        user_id = current_user["id"] if isinstance(current_user, dict) else current_user.id
-        cursor.execute(
-            """
-            SELECT order_id, lng, lat, status, driver_id, zone 
-            FROM orders 
-            WHERE user_id = %s
-            """, 
-            (user_id,)
-        )
-        rows = cursor.fetchall()
-    
-    # 3. Empaquetar como un FeatureCollection GeoJSON para que MapDisplay lo pinte
-    features = [{
-        "type": "Feature",
-        "geometry": {
-            "type": "Point", 
-            "coordinates": [float(r["lng"]), float(r["lat"])]
-        },
-        "properties": {
-            "order_id": r["order_id"], 
-            "status": r["status"], 
-            "driver_id": r["driver_id"] if r["driver_id"] else 0,
-            "zone": r.get("zone", 0)
-        }
-    } for r in rows]
-    
-    return {"type": "FeatureCollection", "features": features}
-    
-# 🎯 RESTAURADO: Endpoint para obtener pedidos de un conductor en formato GeoJSON
-@router.get("/driver/my-orders")
-async def get_driver_orders_geojson(current_user = Depends(get_current_user), conn = Depends(get_db)):
-    # 1. Forzar que solo los usuarios con rol 'driver' puedan consumir este endpoint
-    if current_user.get("role") != "driver":
-        raise HTTPException(status_code=403, detail="Acceso denegado. Solo para conductores.")
-        
-    with conn.cursor() as cursor:
-        # 2. Buscamos las órdenes asignadas a este conductor en específico
-        cursor.execute(
-            """
-            SELECT order_id, lng, lat, status, driver_id, zone 
-            FROM orders 
-            WHERE driver_id = %s AND status = 'assigned'
-            """, 
-            (current_user["id"],)
-        )
-        rows = cursor.fetchall()
-    
-    # 3. Empaquetamos la respuesta en el formato GeoJSON (FeatureCollection) que MapDisplay espera
-    features = [{
-        "type": "Feature",
-        "geometry": {
-            "type": "Point", 
-            "coordinates": [float(r["lng"]), float(r["lat"])]
-        },
-        "properties": {
-            "order_id": r["order_id"], 
-            "status": r["status"], 
-            "driver_id": r["driver_id"],
-            "zone": r.get("zone", 0)
-        }
-    } for r in rows]
-    
-    return {"type": "FeatureCollection", "features": features}

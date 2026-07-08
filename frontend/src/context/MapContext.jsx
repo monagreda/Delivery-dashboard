@@ -148,14 +148,14 @@ export const MapProvider = ({ children }) => {
             }
 
             setStatus('✅ Pedido creado');
-            await fetchZones(zones);
+            fetchZones(zones); // Refrescamos los puntos en el mapa
 
         } catch (err) {
             console.error("Error al crear pedido:", err);
             setStatus('❌ Error al crear pedido');
             throw err;
         }
-    }, [token, fetchZones, zones]);
+    }, [token, fetchZones]);
 
     //Asignar orden a conductor
     // En MapContext.jsx

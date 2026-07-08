@@ -152,3 +152,39 @@ async def report_order_incident(order_id: str, incident_data: IncidentReport, cu
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=500, detail=str(e))
+    
+# 🎯 RESTAURADO: Endpoint para obtener pedidos de un conductor en formato GeoJSON
+@router.get("/driver/my-orders")
+async def get_driver_orders_geojson(current_user = Depends(get_current_user), conn = Depends(get_db)):
+    # 1. Forzar que solo los usuarios con rol 'driver' puedan consumir este endpoint
+    if current_user.get("role") != "driver":
+        raise HTTPException(status_code=403, detail="Acceso denegado. Solo para conductores.")
+        
+    with conn.cursor() as cursor:
+        # 2. Buscamos las órdenes asignadas a este conductor en específico
+        cursor.execute(
+            """
+            SELECT order_id, lng, lat, status, driver_id, zone 
+            FROM orders 
+            WHERE driver_id = %s AND status = 'assigned'
+            """, 
+            (current_user["id"],)
+        )
+        rows = cursor.fetchall()
+    
+    # 3. Empaquetamos la respuesta en el formato GeoJSON (FeatureCollection) que MapDisplay espera
+    features = [{
+        "type": "Feature",
+        "geometry": {
+            "type": "Point", 
+            "coordinates": [float(r["lng"]), float(r["lat"])]
+        },
+        "properties": {
+            "order_id": r["order_id"], 
+            "status": r["status"], 
+            "driver_id": r["driver_id"],
+            "zone": r.get("zone", 0)
+        }
+    } for r in rows]
+    
+    return {"type": "FeatureCollection", "features": features}

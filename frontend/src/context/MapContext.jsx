@@ -39,75 +39,56 @@ export const MapProvider = ({ children }) => {
     // ==========================================================================================================================
     // Función para actualizar o crear el marcador del conductor en el mapa
     const fetchZones = useCallback(async (numZones) => {
-        // 🚩 VALIDACIÓN CRÍTICA: Si numZones es undefined, usa el estado 'zones' o un valor por defecto (4)
-        const finalZones = numZones || zones || 4
-
-        if (!map.current || !token) return;
-
-        setIsLoading(true);
-        setStatus('Cargando datos...');
+        // Si no hay token o no está logueado, no hace nada
+        if (!token) return;
 
         try {
-            const url = role === 'admin'
-                ? `${import.meta.env.VITE_API_URL}/admin/optimize-zones?n_clusters=${numZones}`
-                : role === 'driver'
-                    ? `${import.meta.env.VITE_API_URL}/driver/my-orders`
-                    : `${import.meta.env.VITE_API_URL}/orders`;
+            setIsLoading(true);
+            setStatus('Cargando datos...');
 
-            const res = await axios.get(url, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
+            // 🎯 SI EL ROL ES DRIVER: Consumimos su ruta simplificada
+            if (role === 'driver') {
+                const res = await axios.get(`${import.meta.env.VITE_API_URL}/orders/driver/my-orders`, {
+                    headers: { Authorization: `Bearer ${token}` }
+                });
 
-            let geojsonParaMapa;
-            let listaParaEstado = [];
+                if (res.data) {
+                    // 1. Guardamos el GeoJSON para que se pinte en el mapa
+                    setZonesData(res.data);
 
-            // 1. Normalización
-            if (role === 'admin') {
-                // CAPTURAMOS TODO: puntos y rutas
-                const puntos = res.data?.geojson || { type: 'FeatureCollection', features: [] };
-                const rutas = res.data?.routes_geojson || { type: 'FeatureCollection', features: [] };
-
-                // Construimos un objeto unificado que mantenga la estructura GeoJSON para los puntos
-                // pero que guarde las rutas como una propiedad extra.
-                geojsonParaMapa = {
-                    ...puntos,
-                    routes_geojson: rutas // <--- ESTO es lo que le faltaba a MapDisplay
-                };
-                listaParaEstado = Array.isArray(res.data?.zones) ? res.data.zones : [];
-            } else {
-                geojsonParaMapa = res.data;
-
-                if (res.data && res.data.features) {
-                    listaParaEstado = res.data.features.map(f => ({
-                        id: f.properties.order_id,
+                    // 2. Extraemos las propiedades para actualizar el SidebarDriver (myOrders)
+                    const ordersArray = res.data.features.map(f => ({
                         order_id: f.properties.order_id,
-                        lng: f.geometry.coordinates[0],
-                        lat: f.geometry.coordinates[1],
+                        status: f.properties.status,
+                        driver_id: f.properties.driver_id,
                         zone: f.properties.zone,
-                        status: f.properties.status || 'pending', // por si lo usas
-                        ...f.properties // traemos todo lo demás
+                        lng: f.geometry.coordinates[0],
+                        lat: f.geometry.coordinates[1]
                     }));
-                };
+                    setMyOrders(ordersArray);
+                }
+                setStatus('✅ Pedidos del conductor cargados');
             }
-
-            // 2. ACTUALIZAR ESTADOS (Dentro del try, donde las variables existen)
-            setZonesData(geojsonParaMapa);
-            setMyOrders(listaParaEstado);
-
-            if (role === "admin") {
-                setZoneStats(res.data.stats || {});
-                setZoneDistances(res.data.distances || {});
+            // 🎯 SI EL ROL ES ADMIN (O CUALQUIER OTRO): Mantiene la optimización por IA
+            else {
+                const finalZones = numZones || zones || 4;
+                const res = await axios.get(`${import.meta.env.VITE_API_URL}/admin/optimize-zones?n_clusters=${finalZones}`, {
+                    headers: { Authorization: `Bearer ${token}` }
+                });
+                if (res.data && res.data.geojson) {
+                    setZonesData(res.data.geojson);
+                    setZoneStats(res.data.stats || {});
+                    setZoneDistances(res.data.distances || {});
+                }
+                setStatus('✅ Zonas optimizadas por IA');
             }
-
-            setStatus('✅ Listo');
         } catch (err) {
-            console.error("Error en fetchZones:", err);
-            setStatus(err.response?.status === 401 ? 'Sesión expirada' : '❌ Error');
-            if (err.response?.status === 401) logout();
+            console.error("Error al obtener zonas/pedidos:", err);
+            setStatus('❌ Error al cargar datos');
         } finally {
-            setIsLoading(false); // Usar finally asegura que el loading se apague siempre
+            setIsLoading(false);
         }
-    }, [token, role, logout]);
+    }, [token, role, zones]);
     // ==========================================================================================================================
 
     // Cargar lista de conductores (Drivers) al iniciar
@@ -126,7 +107,7 @@ export const MapProvider = ({ children }) => {
             }
         };
         loadDrivers();
-    }, [isLoggedIn, role, token]);
+    }, [isLoggedIn, role, token, fetchZones]);
 
     // Crear orden
     // DENTRO DE MapContext.jsx
@@ -179,7 +160,6 @@ export const MapProvider = ({ children }) => {
             setStatus('❌ Error al asignar');
         }
     }, [token, fetchZones, zones]);
-
 
 
     //Zoom zone

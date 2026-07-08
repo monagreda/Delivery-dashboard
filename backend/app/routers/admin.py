@@ -24,21 +24,23 @@ async def get_available_drivers(admin_user=Depends(get_current_admin), conn=Depe
         drivers = cursor.fetchall()
     return drivers
 
+
 @router.post("/assign-order")
-async def assign_order(assignment: OrderAssignment, admin_user=Depends(get_current_admin), conn=Depends(get_db)):
+async def assign_order(order_id: str, driver_id: int, admin_user=Depends(get_current_admin), conn=Depends(get_db)):
     try:
         with conn:
             with conn.cursor() as cursor:
                 cursor.execute(
                     "UPDATE orders SET driver_id = %s, status = 'assigned' WHERE order_id = %s RETURNING order_id, status",
-                    (assignment.driver_id, assignment.order_id)
+                    (driver_id, order_id)
                 )
                 updated = cursor.fetchone()
                 if not updated:
                     raise HTTPException(status_code=404, detail="Pedido no encontrado")
-        return {"message": "Conductor asignado exitosamente", "order": updated}
+        return {"status": "success", "order": updated}
     except Exception as e:
         conn.rollback()
+        print(f"🔥 Error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/optimize-zones")

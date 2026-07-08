@@ -160,27 +160,25 @@ export const MapProvider = ({ children }) => {
     }, [token, fetchZones, zones]);
 
     //Asignar orden a conductor
+    // En MapContext.jsx
     const assignOrderToDriver = useCallback(async (orderId, driverId) => {
         try {
             setStatus('Asignando pedido...');
-            await axios.post(`${import.meta.env.VITE_API_URL}/admin/assign-order`,
-                {
-                    order_id: orderId,
-                    driver_id: parseInt(driverId)
-                },
-                { headers: { Authorization: `Bearer ${token}` } },
+
+            // 🎯 Enviamos las variables en la URL tal como mapea el nuevo endpoint plano
+            await axios.post(`${import.meta.env.VITE_API_URL}/admin/assign-order?order_id=${orderId}&driver_id=${parseInt(driverId)}`,
+                {}, // El body viaja vacío
+                { headers: { Authorization: `Bearer ${token}` } }
             );
 
             setStatus('✅ Pedido asignado');
-            setSelectedOrder(null); // Cerramos el popup tras asignar
-
-            // Refrescamos los datos para que el mapa se actualice (puedes volver a llamar a fetchZones)
+            setSelectedOrder(null);
             fetchZones(zones);
         } catch (err) {
             console.error("Error asignando:", err);
             setStatus('❌ Error al asignar');
         }
-    }, [token, fetchZones, zones])
+    }, [token, fetchZones, zones]);
 
 
 

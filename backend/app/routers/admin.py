@@ -51,7 +51,7 @@ async def optimize_zones(n_clusters: int = 4, admin_user=Depends(get_current_adm
                 """
                 SELECT order_id, lng, lat, status, driver_id 
                 FROM orders 
-                WHERE status NOT IN ('delivered', incident')
+                WHERE status IN ('pending', 'assigned')
                 """
                 )
             orders = cursor.fetchall()

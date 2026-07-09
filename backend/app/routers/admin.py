@@ -47,7 +47,13 @@ async def assign_order(order_id: str, driver_id: int, admin_user=Depends(get_cur
 async def optimize_zones(n_clusters: int = 4, admin_user=Depends(get_current_admin), conn=Depends(get_db)):
     try:
         with conn.cursor() as cursor:
-            cursor.execute("SELECT order_id, lng, lat, status, driver_id FROM orders WHERE status != 'delivered'")
+            cursor.execute(
+                """
+                SELECT order_id, lng, lat, status, driver_id 
+                FROM orders 
+                WHERE status NOT IN ('delivered', incident')
+                """
+                )
             orders = cursor.fetchall()
 
         if not orders:

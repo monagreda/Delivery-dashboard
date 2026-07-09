@@ -93,7 +93,12 @@ export const MapProvider = ({ children }) => {
                     headers: { Authorization: `Bearer ${token}` }
                 });
                 if (res.data && res.data.geojson) {
-                    setZonesData(res.data.geojson);
+                    // Combinamos el GeoJSON de los puntos con el GeoJSON de las rutas en el mismo estado
+                    setZonesData({
+                        ...res.data.geojson,
+                        routes_geojson: res.data.routes_geojson || { type: 'FeatureCollection', features: [] }
+                    });
+
                     setZoneStats(res.data.stats || {});
                     setZoneDistances(res.data.distances || {});
                 }

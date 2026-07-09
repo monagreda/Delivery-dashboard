@@ -56,8 +56,14 @@ async def optimize_zones(n_clusters: int = 4, admin_user=Depends(get_current_adm
                 )
             orders = cursor.fetchall()
 
+        # 🎯 CONTROL DE ESCAPE DE SEGURIDAD (Mover arriba de NumPy)
         if not orders:
-            return {"geojson": {"type": "FeatureCollection", "features": []}, "routes_geojson": {"type": "FeatureCollection", "features": []}, "stats": {}, "distances": {}}
+            return {
+                "geojson": {"type": "FeatureCollection", "features": []}, 
+                "routes_geojson": {"type": "FeatureCollection", "features": []}, 
+                "stats": {}, 
+                "distances": {}
+            }
 
         # Si hay menos pedidos que los clústeres pedidos, reducimos los clústeres dinámicamente
         n_clusters = min(n_clusters, len(orders))

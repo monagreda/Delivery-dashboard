@@ -24,46 +24,32 @@ async def get_available_drivers(admin_user=Depends(get_current_admin), conn=Depe
         drivers = cursor.fetchall()
     return drivers
 
-
 @router.post("/assign-order")
-async def assign_order(order_id: str, driver_id: int, admin_user=Depends(get_current_admin), conn=Depends(get_db)):
+async def assign_order(assignment: OrderAssignment, admin_user=Depends(get_current_admin), conn=Depends(get_db)):
     try:
         with conn:
             with conn.cursor() as cursor:
                 cursor.execute(
                     "UPDATE orders SET driver_id = %s, status = 'assigned' WHERE order_id = %s RETURNING order_id, status",
-                    (driver_id, order_id)
+                    (assignment.driver_id, assignment.order_id)
                 )
                 updated = cursor.fetchone()
                 if not updated:
                     raise HTTPException(status_code=404, detail="Pedido no encontrado")
-        return {"status": "success", "order": updated}
+        return {"message": "Conductor asignado exitosamente", "order": updated}
     except Exception as e:
         conn.rollback()
-        print(f"🔥 Error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/optimize-zones")
 async def optimize_zones(n_clusters: int = 4, admin_user=Depends(get_current_admin), conn=Depends(get_db)):
     try:
         with conn.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT order_id, lng, lat, status, driver_id 
-                FROM orders 
-                WHERE status IN ('pending', 'assigned')
-                """
-                )
+            cursor.execute("SELECT order_id, lng, lat, status, driver_id FROM orders WHERE status != 'delivered'")
             orders = cursor.fetchall()
 
-        # 🎯 CONTROL DE ESCAPE DE SEGURIDAD (Mover arriba de NumPy)
         if not orders:
-            return {
-                "geojson": {"type": "FeatureCollection", "features": []}, 
-                "routes_geojson": {"type": "FeatureCollection", "features": []}, 
-                "stats": {}, 
-                "distances": {}
-            }
+            return {"geojson": {"type": "FeatureCollection", "features": []}, "routes_geojson": {"type": "FeatureCollection", "features": []}, "stats": {}, "distances": {}}
 
         # Si hay menos pedidos que los clústeres pedidos, reducimos los clústeres dinámicamente
         n_clusters = min(n_clusters, len(orders))

@@ -2,6 +2,8 @@ import React from 'react';
 import { useMap } from '../context/MapContext';
 import { Navigation, MapPin, Power, Coffee, PackageCheck, AlertTriangle } from 'lucide-react';
 import SidebarSkeleton from './SidebarSkeleton';
+import IncidentModal from './IncidentModal';
+import { useState } from 'react';
 
 const SidebarDriver = () => {
     const {
@@ -15,6 +17,9 @@ const SidebarDriver = () => {
         markAsDelivered,
         reportIncident, // Asegúrate de que coincida con el nombre en MapContext
     } = useMap();
+
+    const [activeIncidentOrderId, setActiveIncidentOrderId] = useState(null);
+    const [isSubmittingIncident, setIsSubmittingIncident] = useState(false);
 
     if (isLoading) return <SidebarSkeleton />;
 
@@ -90,14 +95,7 @@ const SidebarDriver = () => {
 
                                     {/* ⚠️ Botón Reportar Incidente */}
                                     <button
-                                        onClick={() => {
-                                            const razon = prompt("Escribe el tipo de incidente (accidente, especificaciones_erroneas, objetos_ilicitos, otro):");
-                                            if (!razon) return;
-                                            const desc = prompt("Por favor, introduce una breve descripción del suceso:");
-                                            if (!desc) return;
-
-                                            reportIncident(oId, razon, desc);
-                                        }}
+                                        onClick={() => setActiveIncidentOrderId(oId)} // 👈 Guarda el ID para saber de qué pedido es
                                         className="bg-white dark:bg-slate-700 p-2 rounded-lg shadow-sm hover:bg-red-500 hover:text-white transition-all group"
                                         title="Reportar Incidente / Siniestro"
                                     >
@@ -114,6 +112,28 @@ const SidebarDriver = () => {
                     </div>
                 )}
             </div>
+
+            {/* Modal para reportar incidentes */}
+            <IncidentModal
+                isOpen={activeIncidentOrderId !== null}
+                onClose={() => setActiveIncidentOrderId(null)}
+                isSubmitting={isSubmittingIncident}
+                onSubmit={async (incidentType, description) => {
+                    try {
+                        setIsSubmittingIncident(true);
+
+                        // Llamamos a la función global del MapContext
+                        await reportIncident(activeIncidentOrderId, incidentType, description);
+
+                        // Si todo sale bien, cerramos el modal limpiamente
+                        setActiveIncidentOrderId(null);
+                    } catch (error) {
+                        console.error("Error al enviar incidente:", error);
+                    } finally {
+                        setIsSubmittingIncident(false);
+                    }
+                }}
+            />
         </div>
     );
 };

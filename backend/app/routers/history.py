@@ -28,8 +28,9 @@ async def get_user_history(current_user = Depends(get_current_user), conn=Depend
                           d.username as driver 
                    FROM orders o 
                    LEFT JOIN users d ON o.driver_id = d.id 
-                   WHERE o.user_id = %s AND o.status = 'delivered' 
-                   ORDER BY o.delivered_at DESC""", 
+                   WHERE o.user_id = %s AND o.status IN ('delivered', 'incident')
+                   ORDER BY COALESCE(o.delivered_at, o.created_at) DESC
+                   """,
                 (current_user["id"],)
             )
             return format_history_results(cursor.fetchall())
@@ -44,8 +45,9 @@ async def get_driver_history(current_user = Depends(get_current_user), conn=Depe
             cursor.execute(
                 """SELECT order_id, status, created_at, delivered_at, lng, lat, zone 
                    FROM orders 
-                   WHERE driver_id = %s AND status = 'delivered' 
-                   ORDER BY delivered_at DESC""", 
+                   WHERE driver_id = %s AND status IN ('delivered', 'incident') 
+                   ORDER BY COALESCE(delivered_at, created_at) DESC
+                   """, 
                 (current_user["id"],)
             )
             return format_history_results(cursor.fetchall())
@@ -63,8 +65,9 @@ async def get_admin_history(admin_user = Depends(get_current_admin), conn=Depend
                    FROM orders o 
                    JOIN users u ON o.user_id = u.id 
                    LEFT JOIN users d ON o.driver_id = d.id 
-                   WHERE o.status = 'delivered' 
-                   ORDER BY o.delivered_at DESC LIMIT 100"""
+                   WHERE o.status IN ('delivered', 'incident')
+                   ORDER BY COALESCE(o.delivered_at, o.created_at) DESC LIMIT 100
+                   """
             )
             return format_history_results(cursor.fetchall())
     except Exception as e:

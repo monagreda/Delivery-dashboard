@@ -82,7 +82,7 @@ const IncidentModal = ({ isOpen, onClose, onSubmit, isSubmitting }) => {
                     <div className="flex gap-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-200/50 dark:border-amber-900/30 p-3.5 rounded-xl text-amber-700 dark:text-amber-400">
                         <AlertTriangle size={20} className="shrink-0 mt-0.5 animate-bounce" />
                         <p className="text-xs leading-normal font-medium">
-                            Al emitir esta alerta, la orden pasará a estado de congelación inmediata en la base de datos de producción en Render.
+                            Al emitir esta alerta, la orden pasará a estado de congelación inmediata en la base de datos de producción.
                         </p>
                     </div>
 

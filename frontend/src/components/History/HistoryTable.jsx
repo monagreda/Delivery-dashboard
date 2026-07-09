@@ -39,7 +39,13 @@ const HistoryTable = ({ data, role }) => {
                                         : 'Sin fecha'}
                                 </td>
                                 {(role === 'admin' || role === 'user') && <td className="py-3 px-6 text-slate-400">👤 {item.driver || "—"}</td>}
-                                <td className="py-3 px-6 text-center text-emerald-400 font-bold text-[10px]">READY</td>
+                                <td className="py-3 px-6 text-center text-emerald-400 font-bold text-[10px]">
+                                    {item.status === 'incident' ? (
+                                        <span className="text-red-400 bg-red-950/40 px-2 py-1 rounded-full">INCIDENTE</span>
+                                    ) : (
+                                        <span className="text-emerald-400 bg-emerald-950/40 px-2 py-1 rounded-full">ENTREGADO</span>
+                                    )}
+                                </td>
                             </tr>
                         ))}
                     </tbody>
@@ -51,7 +57,11 @@ const HistoryTable = ({ data, role }) => {
                         <div key={item.order_id} className="p-4 flex flex-col space-y-2">
                             <div className="flex justify-between items-center">
                                 <span className="font-mono text-slate-500 text-xs">#{item.order_id.substring(0, 8)}</span>
-                                <span className="text-emerald-400 text-[10px] font-bold">DELIVERED</span>
+                                {item.status === 'incident' ? (
+                                    <span className="text-red-400 text-[10px] font-bold bg-red-950/40 px-2 py-0.5 rounded">INCIDENTE</span>
+                                ) : (
+                                    <span className="text-emerald-400 text-[10px] font-bold bg-emerald-950/40 px-2 py-0.5 rounded">DELIVERED</span>
+                                )}
                             </div>
                             <div className="flex justify-between text-slate-300 text-sm">
                                 <span>{new Date(item.delivered_at).toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit', hour12: true })}</span>

@@ -1,19 +1,24 @@
-import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
-import axios from 'axios';
-import maplibregl from 'maplibre-gl'
-import { useAuth } from './AuthContext'; // Usamos el contexto que acabas de crear
+// src/context/MapContext.jsx
+import React, { createContext, useContext, useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import { useAuth } from './AuthContext';
+import { deliveryService } from '../services/deliveryService';
+import { useDriverTracking } from '../hooks/useDriverTracking';
+import { ZONE_COLORS } from '../config/mapConfig';
 
 const MapContext = createContext();
 
 export const MapProvider = ({ children }) => {
-    const { token, role, logout, isLoggedIn } = useAuth();
+    const { token, role, isLoggedIn } = useAuth();
     const map = useRef(null);
     const mapContainer = useRef(null);
+
+    // Formulario y Coordenadas seleccionadas
     const [isOrderFormOpen, setIsOrderFormOpen] = useState(false);
     const [selectedOrderCoords, setSelectedOrderCoords] = useState(null);
     const [selectedOrderAddress, setSelectedOrderAddress] = useState('');
+    const [selectedOrderPostcode, setSelectedOrderPostcode] = useState('');
 
-    // Estados relacionados con zonas y optimización
+    // Estados relacionados con clústeres y optimización
     const [zones, setZones] = useState(4);
     const [zoneStats, setZoneStats] = useState({});
     const [zoneDistances, setZoneDistances] = useState({});
@@ -21,38 +26,58 @@ export const MapProvider = ({ children }) => {
     const [showRoutes, setShowRoutes] = useState(true);
     const [zonesData, setZonesData] = useState(null);
     const [isLoading, setIsLoading] = useState(false);
-    const [drivers, setDrivers] = useState([]); // lista de conductores
-    const [selectedOrder, setSelectedOrder] = useState(null)
-    const [selectedOrderPostcode, setSelectedOrderPostcode] = useState('');
+    const [drivers, setDrivers] = useState([]);
+    const [selectedOrder, setSelectedOrder] = useState(null);
     const [originCoords, setOriginCoords] = useState({ lng: -3.70379, lat: 40.41678 }); // Madrid por defecto
-    const [clickAddressDetails, setClickAddressDetails] = useState({
-        address: '',
-        postCode: '',
-        country: '',
-    }); // Detalles de la dirección al hacer clic
-    const [estimatedDistance, setEstimatedDistance] = useState(null); // Distancia estimada desde MapTiler
-    const [driverLocation, setDriverLocation] = useState(null);
-    const watchId = useRef(null); //apagar el gps cuando no se esta usando
-    const [myOrders, setMyOrders] = useState([]); // Pedidos específicos del driver
-    const driverMarker = useRef(null);
+    const [clickAddressDetails, setClickAddressDetails] = useState({ address: '', postCode: '', country: '' });
+    const [estimatedDistance, setEstimatedDistance] = useState(null);
+    const [myOrders, setMyOrders] = useState([]);
 
-    // ==========================================================================================================================
-    // Función para actualizar o crear el marcador del conductor en el mapa
-    const fetchZones = useCallback(async (numZones) => {
+    // Hook personalizado de Geolocalización para conductores
+    const { driverLocation, startTracking, stopTracking } = useDriverTracking(map, setStatus);
+
+    // ⚡ ESTRATEGIA DE CACHÉ EN MEMORIA
+    const cache = useRef({ lastFetch: 0, data: null, role: null, queryZones: 0 });
+
+    const fetchZones = useCallback(async (numZones, forceRefresh = false) => {
         if (!token) return;
+
+        const now = Date.now();
+        const finalZones = numZones || zones || 4;
+
+        // Si consultamos los mismos parámetros en menos de 10 seg, leemos de la memoria
+        if (!forceRefresh &&
+            cache.current.data &&
+            (now - cache.current.lastFetch < 10000) &&
+            cache.current.role === role &&
+            cache.current.queryZones === finalZones
+        ) {
+            console.log("⚡ [Caché] Retornando GeoJSON de memoria");
+            setZonesData(cache.current.data);
+
+            if (role === 'driver' || role === 'user') {
+                const ordersArray = cache.current.data.features ? cache.current.data.features.map(f => ({
+                    order_id: f.properties.order_id,
+                    status: f.properties.status,
+                    driver_id: f.properties.driver_id,
+                    zone: f.properties.zone,
+                    lng: f.geometry.coordinates[0],
+                    lat: f.geometry.coordinates[1]
+                })) : [];
+                setMyOrders(ordersArray);
+            }
+            return;
+        }
 
         try {
             setIsLoading(true);
             setStatus('Cargando datos...');
 
-            // 🎯 1. CASO CONDUCTOR
             if (role === 'driver') {
-                const res = await axios.get(`${import.meta.env.VITE_API_URL}/orders/driver/my-orders`, {
-                    headers: { Authorization: `Bearer ${token}` }
-                });
-                if (res.data) {
-                    setZonesData(res.data);
-                    const ordersArray = res.data.features ? res.data.features.map(f => ({
+                const data = await deliveryService.getDriverOrders(token);
+                if (data) {
+                    setZonesData(data);
+                    const ordersArray = data.features ? data.features.map(f => ({
                         order_id: f.properties.order_id,
                         status: f.properties.status,
                         driver_id: f.properties.driver_id,
@@ -61,20 +86,14 @@ export const MapProvider = ({ children }) => {
                         lat: f.geometry.coordinates[1]
                     })) : [];
                     setMyOrders(ordersArray);
+                    cache.current = { lastFetch: now, data, role, queryZones: finalZones };
                 }
                 setStatus('✅ Tus entregas cargadas');
-            }
-            // 🎯 2. CASO USUARIO COMÚN (¡Actualizado para cargar sus pedidos!)
-            else if (role === 'user') {
-                const res = await axios.get(`${import.meta.env.VITE_API_URL}/orders/user/my-orders`, {
-                    headers: { Authorization: `Bearer ${token}` }
-                });
-                if (res.data) {
-                    // Seteamos el GeoJSON para que MapDisplay pinte los puntos en el mapa
-                    setZonesData(res.data);
-
-                    // Convertimos las features en un array plano para que SidebarUser las liste
-                    const ordersArray = res.data.features ? res.data.features.map(f => ({
+            } else if (role === 'user') {
+                const data = await deliveryService.getUserOrders(token);
+                if (data) {
+                    setZonesData(data);
+                    const ordersArray = data.features ? data.features.map(f => ({
                         order_id: f.properties.order_id,
                         status: f.properties.status,
                         driver_id: f.properties.driver_id,
@@ -83,260 +102,137 @@ export const MapProvider = ({ children }) => {
                         lat: f.geometry.coordinates[1]
                     })) : [];
                     setMyOrders(ordersArray);
+                    cache.current = { lastFetch: now, data, role, queryZones: finalZones };
                 }
                 setStatus('✅ Tus pedidos cargados');
-            }
-            // 🎯 3. CASO ADMINISTRADOR
-            else {
-                const finalZones = numZones || zones || 4;
-                const res = await axios.get(`${import.meta.env.VITE_API_URL}/admin/optimize-zones?n_clusters=${finalZones}`, {
-                    headers: { Authorization: `Bearer ${token}` }
-                });
-                if (res.data && res.data.geojson) {
-                    // Combinamos el GeoJSON de los puntos con el GeoJSON de las rutas en el mismo estado
-                    setZonesData({
-                        ...res.data.geojson,
-                        routes_geojson: res.data.routes_geojson || { type: 'FeatureCollection', features: [] }
-                    });
-
-                    setZoneStats(res.data.stats || {});
-                    setZoneDistances(res.data.distances || {});
+            } else {
+                const data = await deliveryService.getAdminZones(token, finalZones);
+                if (data && data.geojson) {
+                    const fullGeoJSON = {
+                        ...data.geojson,
+                        routes_geojson: data.routes_geojson || { type: 'FeatureCollection', features: [] }
+                    };
+                    setZonesData(fullGeoJSON);
+                    setZoneStats(data.stats || {});
+                    setZoneDistances(data.distances || {});
+                    cache.current = { lastFetch: now, data: fullGeoJSON, role, queryZones: finalZones };
                 }
                 setStatus('✅ Zonas optimizadas por IA');
             }
         } catch (err) {
-            console.error("Error al obtener zonas/pedidos:", err);
-            setStatus('❌ Error al cargar datos');
+            console.error("Error cargando mapa:", err);
+            setStatus('❌ Error de sincronización');
         } finally {
             setIsLoading(false);
         }
     }, [token, role, zones]);
-    // ==========================================================================================================================
 
-    // Cargar lista de conductores (Drivers) al iniciar
+    // Carga inicial de conductores para el Admin
     useEffect(() => {
         const loadDrivers = async () => {
-            console.log("Estado Auth", { isLoggedIn, role, token: !!token })
             if (isLoggedIn && role === 'admin' && token) {
                 try {
-                    const res = await axios.get(`${import.meta.env.VITE_API_URL}/admin/drivers`, {
-                        headers: { Authorization: `Bearer ${token}` }
-                    });
-                    setDrivers(res.data);
+                    const data = await deliveryService.getDrivers(token);
+                    setDrivers(data);
                 } catch (err) {
-                    console.error("Error cargando conductores:", err.response?.data || err);
+                    console.error("Error al cargar lista de conductores:", err);
                 }
             }
         };
         loadDrivers();
-    }, [isLoggedIn, role, token, fetchZones]);
+    }, [isLoggedIn, role, token]);
 
-    // Crear orden
-    // DENTRO DE MapContext.jsx
+    // Crear un pedido
     const createOrder = useCallback(async (orderData) => {
         try {
-            setStatus('Creando pedido de carga...');
+            setStatus('Creando pedido...');
+            const resData = await deliveryService.createOrder(token, orderData);
 
-            // Hacemos el POST enviando orderData en el cuerpo (body) de la petición
-            const res = await axios.post(`${import.meta.env.VITE_API_URL}/orders`, orderData, {
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                }
-            });
-
-            if (res.data) {
-                // Actualizamos la lista local y cerramos el formulario
-                setMyOrders(prev => [...prev, res.data]);
+            if (resData) {
+                setMyOrders(prev => [...prev, resData]);
                 setIsOrderFormOpen(false);
                 setSelectedOrderCoords(null);
             }
-
             setStatus('✅ Pedido creado');
-            fetchZones(zones); // Refrescamos los puntos en el mapa
-
+            fetchZones(zones, true); // Forzar recarga real
         } catch (err) {
-            console.error("Error al crear pedido:", err);
+            console.error("Error al crear:", err);
             setStatus('❌ Error al crear pedido');
             throw err;
         }
-    }, [token, fetchZones]);
+    }, [token, fetchZones, zones]);
 
-    //Asignar orden a conductor
-    // En MapContext.jsx
+    // Asignar pedido a conductor
     const assignOrderToDriver = useCallback(async (orderId, driverId) => {
         try {
             setStatus('Asignando pedido...');
-
-            // 🎯 Enviamos las variables en la URL tal como mapea el nuevo endpoint plano
-            await axios.post(`${import.meta.env.VITE_API_URL}/admin/assign-order?order_id=${orderId}&driver_id=${parseInt(driverId)}`,
-                {}, // El body viaja vacío
-                { headers: { Authorization: `Bearer ${token}` } }
-            );
+            await deliveryService.assignOrderToDriver(token, orderId, driverId);
 
             setStatus('✅ Pedido asignado');
             setSelectedOrder(null);
-            fetchZones(zones);
+            fetchZones(zones, true); // Forzar recarga real
         } catch (err) {
             console.error("Error asignando:", err);
             setStatus('❌ Error al asignar');
         }
     }, [token, fetchZones, zones]);
 
-
-    //Zoom zone
+    // Zoom enfocado a una zona de pedidos en el mapa
     const zoomToZone = useCallback((zoneId) => {
         if (!map.current || !zonesData) return;
 
-        // Filtrar puntos que pertenecen a la zona seleccionada
-        const zoneFeatures = zonesData.features.filter(
-            f => f.properties.zone === parseInt(zoneId)
-        );
-
+        const zoneFeatures = zonesData.features.filter(f => f.properties.zone === parseInt(zoneId));
         if (zoneFeatures.length === 0) return;
 
-        // Crear límites (Bounds) para esos puntos
         const bounds = new maplibregl.LngLatBounds();
         zoneFeatures.forEach(f => bounds.extend(f.geometry.coordinates));
 
-        // Mover la cámara con un efecto suave
-        map.current.fitBounds(bounds, {
-            padding: 80, // Espacio alrededor de los puntos
-            maxZoom: 15,
-            duration: 1500 // 1.5 segundos de animación
-        });
+        map.current.fitBounds(bounds, { padding: 80, maxZoom: 15, duration: 1500 });
     }, [zonesData]);
 
-    // ===========================================================================================================================
-
-    // Función para actualizar o crear el marcador del conductor en el mapa
-    const updateDriverOnMap = (pos) => {
-        if (!map.current) return;
-
-        // Si el marcador no existe, lo creamos
-        if (!driverMarker.current) {
-            const el = document.createElement('div');
-            el.className = 'driver-marker'; // Luego le damos estilo CSS (punto azul pulsante)
-
-            driverMarker.current = new maplibregl.Marker(el)
-                .setLngLat([pos.lng, pos.lat])
-                .addTo(map.current);
-        } else {
-            // Si ya existe, solo lo movemos suavemente
-            driverMarker.current.setLngLat([pos.lng, pos.lat]);
-        }
-    };
-    // ===========================================================================================================================
-
-    // Función para iniciar el seguimiento del GPS
-    const startTracking = useCallback(() => {
-        if (!navigator.geolocation) {
-            setStatus("❌ GPS no soportado");
-            return;
-        }
-
-        setStatus("🛰️ Activando GPS...");
-
-        watchId.current = navigator.geolocation.watchPosition(
-            (pos) => {
-                const { longitude, latitude } = pos.coords;
-                const newPos = { lng: longitude, lat: latitude };
-
-                setDriverLocation(newPos);
-                setStatus("✅ GPS Activo");
-
-                // Actualizar o crear el marcador en el mapa
-                updateDriverOnMap(newPos);
-            },
-            (err) => {
-                console.error("Error GPS:", err);
-                setStatus("❌ Error de ubicación");
-            },
-            {
-                enableHighAccuracy: true,
-                timeout: 10000,
-                maximumAge: 0
-            }
-        );
-    }, []);
-    // ===========================================================================================================================
-
-    // Función para detener el seguimiento (ahorro de batería)
-    const stopTracking = useCallback(() => {
-        if (watchId.current !== null) {
-            navigator.geolocation.clearWatch(watchId.current);
-            watchId.current = null;
-            setStatus("Listo");
-        }
-    }, []);
-
-    // ============================================================================================================================
-
-    // Función para marcar un pedido como entregado (solo Drivers)
-    const markAsDelivered = useCallback(async (orderId) => {
+    // Marcar pedido como entregado (Driver)
+    const markAsDelivered = useCallback(async (orderId, imageFile = null) => {
         try {
             setStatus('Actualizando entrega...');
-            await axios.patch(`${import.meta.env.VITE_API_URL}/orders/${orderId}/deliver`, {}, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
-
+            await deliveryService.deliverOrder(token, orderId, imageFile);
             setStatus('✅ Pedido entregado');
-
-            // Refrescamos todo: esto hará que el punto desaparezca de los mapas 
-            // y las listas si el backend ya filtró los "entregados".
-            fetchZones(zones);
+            fetchZones(zones, true); // Forzar recarga
         } catch (err) {
             console.error("Error al entregar:", err);
-            setStatus('❌ Error en el servidor');
+            setStatus('❌ Error en entrega');
         }
     }, [token, fetchZones, zones]);
 
-    // Función para reportar un incidente (solo Drivers)
-    const reportIncident = useCallback(async (orderId, incidentType, description) => {
+    // Reportar un incidente (Driver)
+    const reportIncident = useCallback(async (orderId, incidentType, description, imageFile = null) => {
         try {
             setStatus('Reportando incidente...');
-            await axios.patch(`${import.meta.env.VITE_API_URL}/orders/${orderId}/incident`, {
-                incident_type: incidentType,
-                description: description
-            }, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
-
+            await deliveryService.reportIncident(token, orderId, incidentType, description, imageFile);
             setStatus('⚠️ Incidente reportado');
-
-            // Refrescamos los pedidos para que el estado pase a 'incident'
-            fetchZones(zones);
+            fetchZones(zones, true); // Forzar recarga
         } catch (err) {
-            console.error("Error al reportar incidente:", err);
-            setStatus('❌ Error al reportar incidente');
+            console.error("Error reportando incidente:", err);
+            setStatus('❌ Error en reporte');
         }
     }, [token, fetchZones, zones]);
 
-    // 3. DISPARADOR AUTOMÁTICO (Fuera de fetchZones)
-    // Este efecto vigila 'zones' y 'token'. Si cambian, recarga los puntos.
     useEffect(() => {
-        if (isLoggedIn && token) {
-            fetchZones(zones);
-        }
+        if (isLoggedIn && token) fetchZones(zones);
     }, [zones, token, isLoggedIn, fetchZones]);
 
-    // ============================================================================================================================
-    // 🎯 EFECTO GUARDIÁN: Recalcula la distancia en tiempo real si cambia el Origen (Sede) o el Destino
-    // ============================================================================================================================
+    // Cálculo matemático reactivo de la distancia Sede -> Cliente
     useEffect(() => {
-        // Si no tenemos origen o destino seleccionado, vaciamos la distancia
         if (!originCoords || !selectedOrderCoords) {
             setEstimatedDistance(null);
             return;
         }
-
         try {
             const lat1 = originCoords.lat;
             const lng1 = originCoords.lng;
             const lat2 = selectedOrderCoords.lat;
             const lng2 = selectedOrderCoords.lng;
 
-            const R = 6371; // Radio de la Tierra en Kilómetros
+            const R = 6371; // Radio terrestre en KM
             const dLat = (lat2 - lat1) * Math.PI / 180;
             const dLng = (lng2 - lng1) * Math.PI / 180;
 
@@ -345,70 +241,51 @@ export const MapProvider = ({ children }) => {
 
             const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
             const distanciaLineaRecta = R * c;
-
-            // Tu factor de corrección vial (* 1.3) para simular curvas reales
             const distanciaEstimadaCarretera = distanciaLineaRecta * 1.3;
-
-            console.log(`💥 [Distancia Reactiva] De Sede [${lat1}, ${lng1}] a Destino [${lat2}, ${lng2}] => ${distanciaEstimadaCarretera.toFixed(2)} KM`);
 
             setEstimatedDistance(distanciaEstimadaCarretera);
         } catch (error) {
-            console.error("Error en cálculo reactivo de distancia:", error);
-            setEstimatedDistance(15.0); // Fallback preventivo
+            console.error("Error en distancia reactiva:", error);
+            setEstimatedDistance(15.0);
         }
-    }, [originCoords, selectedOrderCoords]); // 👈 ¡Vigila ambos cambios vitales!
+    }, [originCoords, selectedOrderCoords]);
+
+    const contextValue = useMemo(() => ({
+        map, mapContainer,
+        zones, setZones,
+        zoneStats, zoneDistances,
+        status, setStatus,
+        showRoutes, setShowRoutes,
+        fetchZones, zoomToZone,
+        zonesData, isLoading,
+        driverLocation, startTracking, stopTracking,
+        drivers, createOrder,
+        selectedOrder, setSelectedOrder,
+        assignOrderToDriver,
+        myOrders, setMyOrders,
+        markAsDelivered, reportIncident,
+        isOrderFormOpen, setIsOrderFormOpen,
+        selectedOrderCoords, setSelectedOrderCoords,
+        selectedOrderAddress, setSelectedOrderAddress,
+        selectedOrderPostcode, setSelectedOrderPostcode,
+        clickAddressDetails, setClickAddressDetails,
+        estimatedDistance, setEstimatedDistance,
+        originCoords, setOriginCoords
+    }), [
+        zones, zoneStats, zoneDistances, status, showRoutes, zonesData,
+        isLoading, driverLocation, startTracking, stopTracking, drivers,
+        selectedOrder, myOrders, isOrderFormOpen, selectedOrderCoords,
+        selectedOrderAddress, selectedOrderPostcode, clickAddressDetails,
+        estimatedDistance, originCoords, fetchZones, zoomToZone, createOrder,
+        assignOrderToDriver, markAsDelivered, reportIncident
+    ]);
 
     return (
-        <MapContext.Provider value={{
-            map, mapContainer,
-            zones, setZones,
-            zoneStats,
-            zoneDistances,
-            status, setStatus,
-            showRoutes, setShowRoutes,
-            fetchZones,
-            zoomToZone,
-            zonesData,
-            isLoading,
-            driverLocation,
-            startTracking,
-            stopTracking,
-            drivers,
-            createOrder,
-            selectedOrder, setSelectedOrder,
-            assignOrderToDriver,
-            myOrders,
-            setMyOrders,
-            isLoading,
-            markAsDelivered,
-            reportIncident,
-            isOrderFormOpen,
-            setIsOrderFormOpen,
-            selectedOrderCoords,
-            setSelectedOrderCoords,
-            selectedOrderAddress,
-            setSelectedOrderAddress,
-            selectedOrderPostcode,
-            setSelectedOrderPostcode,
-            clickAddressDetails,
-            setClickAddressDetails,
-            estimatedDistance,
-            setEstimatedDistance,
-            originCoords,
-            setOriginCoords
-        }}>
+        <MapContext.Provider value={contextValue}>
             {children}
         </MapContext.Provider>
     );
 };
 
 export const useMap = () => useContext(MapContext);
-
-export const ZONE_COLORS = [
-    '#FF5733', //Naranja
-    '#33FF57', //Verde
-    '#3357FF', //Azul
-    '#F333FF', //Rosado
-    '#FFD700', //Dorado
-    '#00FFFF'  //Cian
-];
+export { ZONE_COLORS };

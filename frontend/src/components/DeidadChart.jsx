@@ -8,7 +8,7 @@ const DeidadChart = React.memo(({ data, onBarClick }) => {
 
     return (
         <div className="h-48 w-full mt-4">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100% minWidth={0}">
                 <BarChart data={data}>
                     <XAxis dataKey="name" hide />
                     <YAxis hide />

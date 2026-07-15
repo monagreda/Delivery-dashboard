@@ -35,17 +35,25 @@ const MapDisplay = ({ isDark }) => {
         setEstimatedDistance,
     } = useMap();
 
-    // 1. Referencia para mantener los drivers actualizados dentro de los popups
+    // 1. Referencias para mantener los datos actualizados dentro de los eventos del mapa (evita closures obsoletas)
     const driversRef = React.useRef(drivers);
+    const roleRef = React.useRef(role);
+    const tokenRef = React.useRef(token);
+    const zonesRef = React.useRef(zones);
+    const fetchZonesRef = React.useRef(fetchZones);
+    const assignOrderToDriverRef = React.useRef(assignOrderToDriver);
 
-    // 2. Mantenemos la referencia sincronizada cada vez que 'drivers' cambie
-    useEffect(() => {
-        driversRef.current = drivers;
-    }, [drivers]);
+    // Mantenemos las referencias sincronizadas en cada render sin provocar re-inicializaciones
+    useEffect(() => { driversRef.current = drivers; }, [drivers]);
+    useEffect(() => { roleRef.current = role; }, [role]);
+    useEffect(() => { tokenRef.current = token; }, [token]);
+    useEffect(() => { zonesRef.current = zones; }, [zones]);
+    useEffect(() => { fetchZonesRef.current = fetchZones; }, [fetchZones]);
+    useEffect(() => { assignOrderToDriverRef.current = assignOrderToDriver; }, [assignOrderToDriver]);
 
     const MAPTILER_KEY = import.meta.env.VITE_MAPTILER_KEY;
 
-    // 1. Configuración de capas (Sincronizado con MapContext)
+    // Configuración de capas (Sincronizado con MapContext)
     const setupLayers = useCallback(() => {
         if (!map.current) return;
 
@@ -89,7 +97,7 @@ const MapDisplay = ({ isDark }) => {
                     'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 6, 15, 12],
                     'circle-color': [
                         'case',
-                        // 1. Si está entregado (por si acaso queda alguno en el buffer), lo ponemos transparente o gris
+                        // 1. Si está entregado, lo ponemos transparente o gris
                         ['==', ['get', 'status'], 'delivered'], 'rgba(0,0,0,0)',
 
                         // 2. Si tiene un conductor asignado, usamos el verde esmeralda
@@ -110,14 +118,20 @@ const MapDisplay = ({ isDark }) => {
         }
     }, [isDark, showRoutes]);
 
-    // 2. Función para eliminar pedidos
+    // Referencia para usar setupLayers de forma estable en la inicialización sin recrear el mapa
+    const setupLayersRef = React.useRef(setupLayers);
+    useEffect(() => {
+        setupLayersRef.current = setupLayers;
+    }, [setupLayers]);
+
+    // 2. Función para eliminar pedidos (utilizando las referencias para evitar closures obsoletas)
     const deleteOrder = async (orderId) => {
         if (!window.confirm(`¿Seguro que quieres eliminar el pedido ${orderId}?`)) return;
         try {
             await axios.delete(`${import.meta.env.VITE_API_URL}/orders/${orderId}`, {
-                headers: { Authorization: `Bearer ${token}` }
+                headers: { Authorization: `Bearer ${tokenRef.current}` }
             });
-            fetchZones(zones);
+            fetchZonesRef.current(zonesRef.current);
             // Cerrar popups
             const popups = document.getElementsByClassName('maplibregl-popup');
             for (let p of popups) p.remove();
@@ -129,7 +143,6 @@ const MapDisplay = ({ isDark }) => {
     // 3. Inicialización del Mapa
     useEffect(() => {
         if (!isLoggedIn || map.current) return;
-        if (map.current) return; // Evitar reiniciaciones
 
         map.current = new maplibregl.Map({
             container: mapContainer.current,
@@ -138,9 +151,28 @@ const MapDisplay = ({ isDark }) => {
             zoom: 13
         });
 
-        map.current.on('style.load', setupLayers);
+        // Interceptar imágenes faltantes para silenciar la advertencia de MapTiler
+        map.current.on('styleimagemissing', (e) => {
+            const id = e.id;
+            // Si el mapa pide un sprite que es vacío, nulo o un espacio en blanco " "
+            if (id === ' ' || !id.trim()) {
+                const width = 1;
+                const height = 1;
+                const data = new Uint8Array([0, 0, 0, 0]); // Generamos un pixel transparente (RGBA)
 
-        // Lógica de Drag & Drop para reubicar
+                // Si por casualidad ya se agregó, evitamos pisarlo para no causar conflictos
+                if (map.current && !map.current.hasImage(id)) {
+                    map.current.addImage(id, { width, height, data });
+                }
+            }
+        });
+
+        // Llamar a setupLayers a través del Ref para que siempre use la función más actualizada
+        map.current.on('style.load', () => {
+            setupLayersRef.current();
+        });
+
+        // Lógica de Drag & Drop para reubicar (utilizando referencias actualizadas)
         const onMove = () => { map.current.getCanvas().style.cursor = 'grabbing'; };
         const onUp = async (e, orderId) => {
             const { lng, lat } = e.lngLat;
@@ -149,13 +181,13 @@ const MapDisplay = ({ isDark }) => {
             try {
                 setStatus('📍 Reubicando...');
                 await axios.put(`${import.meta.env.VITE_API_URL}/orders/${orderId}/location?lng=${lng}&lat=${lat}`, {}, {
-                    headers: { Authorization: `Bearer ${token}` }
+                    headers: { Authorization: `Bearer ${tokenRef.current}` }
                 });
-                fetchZones(zones);
+                fetchZonesRef.current(zonesRef.current);
                 setStatus('✅ Ubicación guardada');
             } catch (err) {
                 setStatus('❌ Error al mover');
-                fetchZones(zones);
+                fetchZonesRef.current(zonesRef.current);
             }
         };
 
@@ -168,13 +200,11 @@ const MapDisplay = ({ isDark }) => {
 
         // Crear pedido con clic en el mapa
         map.current.on('click', async (e) => {
-
             const features = map.current.queryRenderedFeatures(e.point, { layers: ['puntos-entrega'] });
             if (features.length > 0) return; // Si clickeamos un punto, no crear uno nuevo
 
             const { lng, lat } = e.lngLat;
 
-            // Abrir el formulario y guardar coordenadas de inmediato
             setSelectedOrderCoords({ lng, lat });
             setIsOrderFormOpen(true);
             setSelectedOrderAddress('Buscando dirección...');
@@ -184,7 +214,6 @@ const MapDisplay = ({ isDark }) => {
                 setClickAddressDetails({ address: 'Buscando...', postcode: '', country: '' });
             }
 
-            // Consultar a Maptiler la calle exacta en segundo plano para el formulario
             try {
                 setStatus('🔍 Buscando dirección...');
                 const response = await fetch(
@@ -241,14 +270,11 @@ const MapDisplay = ({ isDark }) => {
 
         // POPUPS de gestión de pedidos
         map.current.on('click', 'puntos-entrega', (e) => {
-            const feature = e.features[0]; // Objeto completo con properties
+            const feature = e.features[0];
             const coordinates = e.features[0].geometry.coordinates.slice();
 
-            // IMPORTANTE: MapLibre a veces serializa las properties como strings. 
-            // Vamos a normalizarlas para que el componente React no falle.
             const properties = {
                 ...feature.properties,
-                // Convertimos a número si es necesario, ya que desde el mapa vienen como string
                 zone: Number(feature.properties.zone),
                 driver_id: feature.properties.driver_id ? Number(feature.properties.driver_id) : 0
             };
@@ -265,14 +291,14 @@ const MapDisplay = ({ isDark }) => {
                 setTimeout(() => root.unmount(), 0);
             });
 
-            // Pasamos un objeto 'order' que tenga la estructura que tus Popups esperan
             const orderData = {
                 properties: properties,
                 geometry: feature.geometry
             };
 
-            // IMPORTANTE: Pasamos 'order={feature}' en lugar de variables sueltas
-            if (role === 'admin') {
+            const currentRole = roleRef.current;
+
+            if (currentRole === 'admin') {
                 root.render(
                     <AdminPopup
                         order={orderData}
@@ -280,13 +306,13 @@ const MapDisplay = ({ isDark }) => {
                         onDelete={(id) => { deleteOrder(id); popup.remove(); }}
                         onAssign={async (id, driverId) => {
                             if (!driverId) return;
-                            await assignOrderToDriver(id, driverId);
+                            await assignOrderToDriverRef.current(id, driverId);
                             popup.remove();
-                            fetchZones(zones); // Refrescar para ver el cambio de color a verde
+                            fetchZonesRef.current(zonesRef.current); // Refrescar usando la referencia
                         }}
                     />
                 );
-            } else if (role === 'driver') {
+            } else if (currentRole === 'driver') {
                 root.render(<DriverPopup order={orderData} />);
             } else {
                 root.render(
@@ -311,32 +337,26 @@ const MapDisplay = ({ isDark }) => {
                 map.current = null;
             }
         };
-    }, [isLoggedIn, setupLayers]);
+    }, [isLoggedIn]); // Único disparador estable: el estado de la sesión de Auth
 
-    // 3. Actualización de datos en tiempo real (Híbrida: Admin y User)
+    // 4. Actualización de datos en tiempo real (Híbrida: Admin y User)
     useEffect(() => {
         if (!map.current || !zonesData) return;
 
         const updateMapSource = () => {
-
-            //Actualizamos puntos
             const pointSource = map.current.getSource('pedidos');
             if (pointSource) {
                 pointSource.setData(zonesData);
-                console.log("Capa 'pedidos' actualizada con:", zonesData.features.length, "puntos");
+                console.log("Capa 'pedidos' actualizada con:", zonesData.features?.length, "puntos");
             }
 
-            //Actualizar rutas
             const routesSource = map.current.getSource('rutas');
             if (routesSource) {
-                // Si el backend envió rutas, las ponemos. 
-                // Si no (o si falló), enviamos una colección vacía para LIMPIAR el mapa.
                 const routesToRender = zonesData.routes_geojson || { type: 'FeatureCollection', features: [] };
                 routesSource.setData(routesToRender);
             }
-            console.log("ZonesData recibida:", zonesData)
+            console.log("ZonesData recibida:", zonesData);
 
-            // 3. Ajustar cámara 
             if (zonesData.features?.length > 0) {
                 const bounds = new maplibregl.LngLatBounds();
                 zonesData.features.forEach(f => bounds.extend(f.geometry.coordinates));
@@ -344,36 +364,25 @@ const MapDisplay = ({ isDark }) => {
             }
         };
 
-        // Si el estilo ya cargó, actualizamos. Si no, esperamos al evento 'style.load'
         if (map.current.isStyleLoaded()) {
             updateMapSource();
         } else {
             map.current.once('style.load', updateMapSource);
         }
-    }, [zonesData]); // Se dispara cada vez que zonesData cambie en el contexto
+    }, [zonesData]);
 
-    // Función auxiliar para no repetir la estructura del Feature
-    const formatToFeature = (o, zoneId) => ({
-        type: 'Feature',
-        geometry: { type: 'Point', coordinates: [o.lng, o.lat] },
-        properties: {
-            order_id: o.order_id || o.id,
-            zone: zoneId,
-            driver_id: o.driver_id ? Number(o.driver_id) : 0,
-            status: o.status
-        }
-    });
-
-    // 4. Efecto de cambio de tema
+    // 5. Efecto de cambio de tema (Se actualiza suavemente sin destruir la instancia del mapa)
     useEffect(() => {
         if (map.current) {
             const style = isDark ? 'streets-v2-dark' : 'streets-v2';
-            map.current.setStyle(`https://api.maptiler.com/maps/${style}/style.json?key=${MAPTILER_KEY}`);
+            map.current.setStyle(
+                `https://api.maptiler.com/maps/${style}/style.json?key=${MAPTILER_KEY}`,
+                { diff: true });
             map.current.once('style.load', setupLayers);
         }
     }, [isDark]);
 
-    // 5. Visibilidad de rutas
+    // 6. Visibilidad de rutas (Se actualiza suavemente)
     useEffect(() => {
         if (map.current && map.current.getLayer('lineas-ruta')) {
             map.current.setLayoutProperty('lineas-ruta', 'visibility', showRoutes ? 'visible' : 'none');
@@ -389,4 +398,3 @@ const MapDisplay = ({ isDark }) => {
 };
 
 export default MapDisplay;
-

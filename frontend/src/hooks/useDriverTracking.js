@@ -1,6 +1,15 @@
 // src/hooks/useDriverTracking.js
 import { useState, useRef, useCallback, useEffect } from 'react';
-import maplibregl from 'maplibre-gl';
+
+// Import dinámico: maplibre-gl solo se descarga cuando realmente se usa.
+// Para cuando esto se llama, MapDisplay ya cargó su propio chunk de
+// maplibre-gl, así que este import resuelve al instante desde caché
+// del navegador — sin descarga adicional ni impacto en el bundle inicial.
+let maplibreglPromise;
+const getMaplibreGl = () => {
+    if (!maplibreglPromise) maplibreglPromise = import('maplibre-gl');
+    return maplibreglPromise;
+};
 
 export const useDriverTracking = (mapRef, setStatus) => {
     const [driverLocation, setDriverLocation] = useState(null);
@@ -8,10 +17,13 @@ export const useDriverTracking = (mapRef, setStatus) => {
     const driverMarker = useRef(null);
 
     // Mueve o inicializa el marcador azul del driver en el mapa
-    const updateDriverOnMap = useCallback((pos) => {
+    const updateDriverOnMap = useCallback(async (pos) => {
         if (!mapRef.current) return;
 
         if (!driverMarker.current) {
+            const { default: maplibregl } = await getMaplibreGl();
+            if (!mapRef.current) return; // pudo desmontarse mientras esperábamos el import
+
             const el = document.createElement('div');
             el.className = 'driver-marker'; // Círculo azul pulsante CSS
 

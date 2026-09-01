@@ -1,17 +1,22 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { useAuth } from './context/AuthContext';
 import { MapProvider } from './context/MapContext';
 
-// Importa tus componentes
+// Componentes ligeros: se necesitan de inmediato (landing / auth), se quedan estáticos
 import Navbar from './components/Navbar';
 import Hero from './components/Hero';
 import Login from './pages/Login';
 import Register from './pages/Register';
-import MapDisplay from './components/MapDisplay';
-import SidebarAdmin from './components/SidebarAdmin';
-import SidebarDriver from './components/SidebarDriver';
-import SidebarUser from './components/SidebarUser';
-import HistoryContainer from './components/History/HistoryContainer';
+import SidebarSkeleton from './components/SidebarSkeleton';
+
+// Componentes pesados: solo se cargan cuando el usuario ya inició sesión.
+// MapDisplay arrastra maplibre-gl (~800KB) y SidebarAdmin arrastra recharts (~500KB)
+// vía DeidadChart — ninguno de los dos debe estar en el bundle inicial.
+const MapDisplay = lazy(() => import('./components/MapDisplay'));
+const SidebarAdmin = lazy(() => import('./components/SidebarAdmin'));
+const SidebarDriver = lazy(() => import('./components/SidebarDriver'));
+const SidebarUser = lazy(() => import('./components/SidebarUser'));
+const HistoryContainer = lazy(() => import('./components/History/HistoryContainer'));
 
 function App() {
   const { isLoggedIn, logout, login, role } = useAuth();
@@ -52,21 +57,23 @@ function App() {
         <Hero onStart={() => setShowRegister(true)} />
       ) : (
         <MapProvider>
-          <MapDisplay isDark={isDark} />
-          {/* cambio de logica segun el rol */}
-          {role === 'admin' && (
-            <SidebarAdmin isDark={isDark} setIsDark={setIsDark} />
-          )}
+          <Suspense fallback={<SidebarSkeleton />}>
+            <MapDisplay isDark={isDark} />
+            {/* cambio de logica segun el rol */}
+            {role === 'admin' && (
+              <SidebarAdmin isDark={isDark} setIsDark={setIsDark} />
+            )}
 
-          {role === 'driver' && (
-            <SidebarDriver />
-          )}
+            {role === 'driver' && (
+              <SidebarDriver />
+            )}
 
-          {role === 'user' && (
-            <SidebarUser />
-          )}
+            {role === 'user' && (
+              <SidebarUser />
+            )}
 
-          {role && <HistoryContainer />}
+            {role && <HistoryContainer />}
+          </Suspense>
         </MapProvider>
       )}
     </div>

@@ -146,7 +146,7 @@ const MapDisplay = ({ isDark }) => {
 
         map.current = new maplibregl.Map({
             container: mapContainer.current,
-            style: `https://api.maptiler.com/maps/${isDark ? 'streets-v2-dark' : 'streets-v2'}/style.json?key=${MAPTILER_KEY}`,
+            style: `https://api.maptiler.com/maps/${isDark ? 'basic-v2-dark' : 'basic-v2'}/style.json?key=${MAPTILER_KEY}`,
             center: [-3.70379, 40.41678], // Centro de Madrid
             zoom: 13
         });

@@ -360,7 +360,11 @@ const MapDisplay = ({ isDark }) => {
             if (zonesData.features?.length > 0) {
                 const bounds = new maplibregl.LngLatBounds();
                 zonesData.features.forEach(f => bounds.extend(f.geometry.coordinates));
-                map.current.fitBounds(bounds, { padding: 50, maxZoom: 15 });
+                // duration: 0 evita la animación de cámara (fly-to). Sin esto, el mapa
+                // recalcula y repinta cada frame de la animación MIENTRAS el estilo
+                // vectorial pesado (streets-v2) todavía está parseando/pintando —
+                // justo la combinación que Lighthouse reportó como "long tasks".
+                map.current.fitBounds(bounds, { padding: 50, maxZoom: 15, duration: 0 });
             }
         };
 
